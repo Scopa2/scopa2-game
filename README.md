@@ -1,5 +1,93 @@
-# Scopa 2 (finally)
-## Constraints
+# Scopa 2 - Gioco di Carte Italiano
+
+Un gioco di Scopa completo sviluppato in Godot 4.5, con modalità 1v1 contro il computer.
+
+## 🎮 Come Giocare
+
+### Avvio
+Apri il progetto in Godot 4.5 e premi F5 per avviare il gioco.
+
+### Controlli
+- **Clicca** su una carta dalla tua mano per giocarla
+- Se ci sono più opzioni di cattura, apparirà un menu per scegliere
+- Il gioco passa automaticamente al turno del computer
+
+## 📜 Regole della Scopa
+
+### Setup
+- Mazzo di **40 carte** (semi italiani: Denari, Coppe, Spade, Bastoni)
+- **4 carte** vengono messe sul tavolo all'inizio
+- Ogni giocatore riceve **3 carte** alla volta
+
+### Cattura delle Carte
+È possibile catturare carte dal tavolo in due modi:
+1. **Cattura diretta**: Una carta in mano con lo stesso valore di una carta sul tavolo
+2. **Cattura per somma**: Una carta in mano il cui valore è uguale alla somma di 2+ carte sul tavolo
+
+Se non è possibile catturare, la carta viene posata sul tavolo.
+
+### Scopa!
+Si fa **Scopa** quando si catturano tutte le carte rimaste sul tavolo (eccetto l'ultima mano).
+
+### Fine Mano
+Quando terminano le carte in mano, vengono distribuite altre 3 carte fino all'esaurimento del mazzo.
+Le carte rimaste sul tavolo vanno all'ultimo giocatore che ha catturato.
+
+## 🏆 Punteggio
+
+Alla fine di ogni mano si calcolano i punti:
+
+| Punto | Descrizione |
+|-------|-------------|
+| **Carte** | 1 punto a chi ha più carte (21+) |
+| **Denari** | 1 punto a chi ha più carte di Denari (6+) |
+| **Sette Bello** | 1 punto a chi ha il 7 di Denari |
+| **Primiera** | 1 punto a chi ha il punteggio primiera più alto |
+| **Scope** | 1 punto per ogni scopa fatta |
+
+### Primiera
+Il punteggio primiera si calcola prendendo la carta migliore di ogni seme:
+- 7 = 21 punti
+- 6 = 18 punti  
+- Asso = 16 punti
+- 5 = 15 punti
+- 4 = 14 punti
+- 3 = 13 punti
+- 2 = 12 punti
+- Figure (8,9,10) = 10 punti
+
+Vince la primiera chi ha il totale più alto (avendo almeno una carta per seme).
+
+### Vittoria
+Il primo giocatore a raggiungere **11 punti** vince la partita!
+
+## 🤖 Intelligenza Artificiale
+
+Il computer usa una strategia di livello medio che:
+- Preferisce catturare più carte possibili
+- Dà priorità alle carte di Denari e ai 7
+- Cerca di fare Scopa quando possibile
+- Evita di lasciare situazioni vantaggiose all'avversario
+
+## 📁 Struttura del Progetto
+
+```
+├── assets/textures/deck/    # Sprite sheet delle carte
+├── scenes/
+│   ├── main.tscn           # Scena principale del gioco
+│   └── CardUI.tscn         # Scena per la UI delle carte
+├── scripts/
+│   ├── main.gd             # Controller principale del gioco
+│   ├── GameManager.gd      # Logica del gioco e regole
+│   ├── AIPlayer.gd         # Intelligenza artificiale
+│   ├── models/
+│   │   ├── Card.gd         # Classe carta
+│   │   └── Player.gd       # Classe giocatore
+│   └── ui/
+│       └── CardUI.gd       # UI della carta
+```
+
+## 🔧 Constraints Originali
 Il gioco segue le regole della Scopa Napoletata.
 La manche inizia con un mazzo di 40 carte, vengono messe 4 carte a terra e vengono date ogni turno 3 carte per giocatore. 
 
