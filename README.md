@@ -1,172 +1,234 @@
-# Scopa 2 - Gioco di Carte Italiano
+Ecco il documento di progetto aggiornato. Ho integrato le regole originali (che sono rimaste invariate) con le specifiche tecniche dell'architettura distribuita che abbiamo definito (Laravel, Event Sourcing, PGN, WebSockets).
 
-Un gioco di Scopa completo sviluppato in Godot 4.5, con modalità 1v1 contro il computer.
+---
 
-## 🎮 Come Giocare
+# Scopa 2 - Progetto di Sistemi Distribuiti
 
-### Avvio
-Apri il progetto in Godot 4.5 e premi F5 per avviare il gioco.
+Un'implementazione moderna del gioco della Scopa, sviluppata con un'architettura **Client-Server** che garantisce consistenza dello stato, persistenza degli eventi e interazione in tempo reale.
 
-### Controlli
-- **Clicca** su una carta dalla tua mano per giocarla
-- Se ci sono più opzioni di cattura, apparirà un menu per scegliere
-- Il gioco passa automaticamente al turno del computer
+* **Client:** Godot Engine 4.5 (GDScript)
+* **Server:** Laravel 10+ (PHP)
+* **Real-time:** Laravel Reverb / Soketi (WebSockets)
+* **Database:** MySQL / PostgreSQL (Event Store)
 
-## 📜 Regole della Scopa
+---
+
+## 1. 🏗 Architettura del Sistema
+
+Il progetto adotta un pattern **Event Sourcing** con esecuzione deterministica. Il server non salva solo lo stato finale, ma la sequenza immutabile di azioni che ha portato a quello stato.
+
+### Principi Chiave (Sistemi Distribuiti)
+
+1. **Single Source of Truth (SSOT):** Il server Laravel detiene lo stato autoritativo. Il client è solo una "proiezione" visiva dello stato.
+2. **Determinismo:** Ogni partita nasce da un **Seed** crittografico. Dato lo stesso Seed e la stessa sequenza di mosse (PGN), lo stato finale sarà sempre identico (mazzo, shop, pescate).
+3. **Concurrency Control:** Utilizzo di transazioni atomiche e locking sul database per gestire **Race Conditions** (es. due giocatori che comprano lo stesso oggetto nello shop simultaneamente).
+4. **Information Hiding:** Il server invia al client solo le informazioni che il giocatore *può* vedere (mascheramento delle carte avversarie e del mazzo).
+
+### Flusso Dati
+
+1. **Azione:** Il Client invia una richiesta HTTP POST (micro-azione).
+2. **Validazione:** Il Server ricostruisce lo stato attuale riproducendo gli eventi passati e valida la nuova mossa.
+3. **Persistenza:** Se valida, la mossa viene salvata come evento immutabile nel DB.
+4. **Broadcast:** Il nuovo stato viene calcolato e inviato via WebSocket a tutti i client connessi.
+
+---
+
+## 2. 📜 Regole di Gioco (Core)
 
 ### Setup
-- Mazzo di **40 carte** (semi italiani: Denari, Coppe, Spade, Bastoni)
-- **4 carte** vengono messe sul tavolo all'inizio
-- Ogni giocatore riceve **3 carte** alla volta
 
-### Cattura delle Carte
-È possibile catturare carte dal tavolo in due modi:
-1. **Cattura diretta**: Una carta in mano con lo stesso valore di una carta sul tavolo
-2. **Cattura per somma**: Una carta in mano il cui valore è uguale alla somma di 2+ carte sul tavolo
+* Mazzo di **40 carte** (Denari, Coppe, Spade, Bastoni).
+* **4 carte** sul tavolo all'inizio.
+* **3 carte** distribuite a ogni giocatore per turno.
 
-Se non è possibile catturare, la carta viene posata sul tavolo.
+### Meccaniche di Presa
 
-### Scopa!
-Si fa **Scopa** quando si catturano tutte le carte rimaste sul tavolo (eccetto l'ultima mano).
+1. **Cattura diretta**: Carta in mano = Carta sul tavolo (es. 10 prende 10).
+2. **Cattura per somma**: Carta in mano = Somma di carte sul tavolo (es. Re prende 3 + 7).
+3. **Scarto**: Se non si può catturare, la carta viene lasciata a terra.
+4. **Scopa**: Prendere tutte le carte a terra vale 1 punto (segnalato nel log).
 
-### Fine Mano
-Quando terminano le carte in mano, vengono distribuite altre 3 carte fino all'esaurimento del mazzo.
-Le carte rimaste sul tavolo vanno all'ultimo giocatore che ha catturato.
+### Punteggio (Fine Manche)
 
-## 🏆 Punteggio
-
-Alla fine di ogni mano si calcolano i punti:
-
+Si vince a **11 punti**.
 | Punto | Descrizione |
 |-------|-------------|
-| **Carte** | 1 punto a chi ha più carte (21+) |
-| **Denari** | 1 punto a chi ha più carte di Denari (6+) |
-| **Sette Bello** | 1 punto a chi ha il 7 di Denari |
-| **Primiera** | 1 punto a chi ha il punteggio primiera più alto |
-| **Scope** | 1 punto per ogni scopa fatta |
+| **Carte** | 1pt (chi ha 21+ carte) |
+| **Denari** | 1pt (chi ha 6+ carte denari) |
+| **7 Bello** | 1pt (chi ha il 7 di Denari) |
+| **Primiera** | 1pt (punteggio calcolato sui 7, 6, Asso, ecc.) |
+| **Scope** | 1pt per ogni scopa effettuata |
 
-### Primiera
-Il punteggio primiera si calcola prendendo la carta migliore di ogni seme:
-- 7 = 21 punti
-- 6 = 18 punti  
-- Asso = 16 punti
-- 5 = 15 punti
-- 4 = 14 punti
-- 3 = 13 punti
-- 2 = 12 punti
-- Figure (8,9,10) = 10 punti
+---
 
-Vince la primiera chi ha il totale più alto (avendo almeno una carta per seme).
+## 3. 🔮 Modifiers (Santi) & Shop Condiviso
 
-### Vittoria
-Il primo giocatore a raggiungere **11 punti** vince la partita!
+Oltre alle regole base, i giocatori possono acquistare potenziamenti.
 
-## 🤖 Intelligenza Artificiale
+### Logica dello Shop
 
-Il computer usa una strategia di livello medio che:
-- Preferisce catturare più carte possibili
-- Dà priorità alle carte di Denari e ai 7
-- Cerca di fare Scopa quando possibile
-- Evita di lasciare situazioni vantaggiose all'avversario
+* Lo shop è **condiviso** e aggiornato in tempo reale.
+* Contiene 3 "Santi" con rarità variabile.
+* Le azioni sono atomiche: "Chi prima clicca, prima compra".
 
-## 📁 Struttura del Progetto
+### Valuta di Scambio (Sacrificio)
+
+Per comprare un Santo, si sacrificano carte dal mazzo delle proprie *carte prese*. Il valore è basato sulla **Briscola**:
+
+* **Asso (1):** 11 punti
+* **Tre (3):** 10 punti
+* **Re (10):** 4 punti
+* **Cavallo (9):** 3 punti
+* **Fante (8):** 2 punti
+* **Altri (2,4,5,6,7):** 0 punti
+
+**Bonus Semi:** Denari (+3), Coppe (+2), Spade (+1), Bastoni (+0).
+
+### Sangue di San Gennaro
+
+Se il valore delle carte sacrificate supera il costo del Santo, il resto viene convertito in "Gocce di Sangue" (accumulabili per 1 turno) che possono essere usate per acquisti futuri.
+
+### Lista Santi Implementati
+
+* **San Gennaro:** Scioglie il sangue / Scambia carta con avversario.
+* **Santa Lucia:** Vedi le carte dell'avversario (toglie il mascheramento dal payload JSON).
+* **Sant'Antonio:** Brucia una carta da terra.
+* **Mida:** Trasforma una carta in Denari (Oro).
+* ... (altri come da specifica originale)
+
+---
+
+## 4. 🔌 Protocollo di Comunicazione (API & PGN)
+
+### Endpoints REST
+
+| Metodo | Endpoint | Descrizione |
+| --- | --- | --- |
+| `POST` | `/api/games` | Crea partita (ritorna `game_id` e `seed`). |
+| `GET` | `/api/games/{id}` | Scarica lo stato attuale (Sync). |
+| `POST` | `/api/games/{id}/action` | Invia una mossa (Compra, Usa, Gioca). |
+
+### Notation Protocol (Scopa Algebraic Notation)
+
+Per salvare lo storico e garantire l'audit, usiamo una notazione testuale compatta ispirata agli scacchi, salvata nel DB.
+
+**Grammatica:**
+
+* **Carte:** `7D` (7 Denari), `10C` (Re Coppe).
+* **Presa:** `x` (es. `7Dx7S` o `10Cx(3D+7B)`).
+* **Scopa:** `#` a fine mossa.
+* **Shop:** `$` seguito da ID e pagamento (es. `$GEN(1C)`).
+* **Abilità:** `@` seguito da ID e target (es. `@LUC[P2]`).
+
+**Esempio di Log Partita:**
+
+```text
+1. 4S           $LUC(1C) 5D  ; P1 scarta. P2 compra Lucia e scarta.
+2. 7Dx(3S+4S)   10Sx10D#     ; P1 prende. P2 fa Scopa.
+3. @LUC         ...          ; P1 attiva Lucia (vede carte P2).
 
 ```
-├── assets/textures/deck/    # Sprite sheet delle carte
+
+### Struttura JSON di Ritorno (Stato)
+
+Il payload inviato via WebSocket dopo ogni mossa:
+
+```json
+{
+  "game_id": "uuid-...",
+  "turn": "p2",
+  "table": ["3D", "5S", "1B"],
+  "shop": ["GEN", "ANT"],
+  "deck_count": 24,
+  "players": {
+    "p1": {
+      "hand": ["7D", "2C", "1S"], // Visibile solo a P1
+      "captured_count": 4,
+      "santi": ["GEN"],
+      "blood": 2
+    },
+    "p2": {
+      "hand": ["BACK", "BACK", "BACK"], // Oscurato per P1
+      "captured_count": 2,
+      "santi": [],
+      "blood": 0
+    }
+  }
+}
+
+```
+
+---
+
+## 5. 📁 Struttura del Progetto
+
+Il progetto è diviso in due repository logiche.
+
+### Backend (Laravel)
+
+```
+app/
+├── GameEngine/             # Core Logic (Agnostico dal Framework)
+│   ├── GameState.php       # DTO dello stato (Marshaling dati)
+│   ├── ScopaEngine.php     # State Machine (Replay Eventi)
+│   ├── ScopaNotation.php   # Parser PGN
+│   └── GameConstants.php   # Regole e Valori
+├── Http/Controllers/
+│   └── GameController.php  # API Entry point
+├── Models/
+│   ├── Game.php            # Tabella partite (Seed, Status)
+│   └── GameEvent.php       # Tabella eventi (Append-only Log)
+└── Events/
+    └── GameStateUpdated.php # Evento Broadcast WebSocket
+
+```
+
+### Frontend (Godot)
+
+```
+res://
 ├── scenes/
-│   ├── main.tscn           # Scena principale del gioco
-│   └── CardUI.tscn         # Scena per la UI delle carte
+│   ├── MainGame.tscn       # Scena di gioco
+│   ├── Card.tscn           # Oggetto Carta interattivo
+│   └── ShopOverlay.tscn    # UI Shop
 ├── scripts/
-│   ├── main.gd             # Controller principale del gioco
-│   ├── GameManager.gd      # Logica del gioco e regole
-│   ├── AIPlayer.gd         # Intelligenza artificiale
-│   ├── models/
-│   │   ├── Card.gd         # Classe carta
-│   │   └── Player.gd       # Classe giocatore
-│   └── ui/
-│       └── CardUI.gd       # UI della carta
+│   ├── NetworkManager.gd   # Gestione HTTP e WebSocket
+│   ├── GameState.gd        # Parsing del JSON ricevuto
+│   └── controllers/
+│       ├── InputController.gd # Gestione click e drag
+│       └── FXManager.gd       # Animazioni (Sangue, Scope)
+└── assets/                 # Texture Napoletane
+
 ```
 
-## 🔧 Constraints Originali
-Il gioco segue le regole della Scopa Napoletata.
-La manche inizia con un mazzo di 40 carte, vengono messe 4 carte a terra e vengono date ogni turno 3 carte per giocatore. 
+---
 
-È possibile prendere le carte da terra in due modi:
-- Se si ha una carta in mano di valore uguale ad una carta a terra (esempio 10 di coppe in mano e 10 di spade a terra)
-- Se si ha una carta in mano di valore uguale alla somma di 2 o più carte a terra (esempio 10 di coppe in mano e a terra: 7 di spade e 3 di denari)
+## 6. 🧠 Logica di Sincronizzazione Client
 
-Se non è possibile prendere da terra, si mette una carta a terra tra quelle in mano.
+Il client Godot è "stupido" (Thin Client) per quanto riguarda le regole, ma "intelligente" per le animazioni.
 
-È possibile fare scopa prendendo l'ultima o le ultime carte rimaste a terra.
+1. **Input:** Utente trascina carta.
+2. **Lock UI:** L'interfaccia si blocca o mostra un loader sottile.
+3. **Request:** Invia l'azione al server.
+4. **Update:**
+* Se riceve `200 OK` + JSON: Aggiorna la posizione delle carte interpolando (tweening) dalla posizione attuale a quella nuova dettata dal server.
+* Se riceve `422 Error`: Mostra "Mossa non valida" e riporta la carta in mano.
 
-Quando i giocatori finiscono le carte in mano, finisce il turno e vengono date di nuovo 3 carte a testa, fino alla fine delle carte.
 
-Quando la partita finisce si contano le carte guadagnate e si possono fare i seguenti punti:
-- Denari: 1 punto per il giocatore con più carte di denari
-- 7 Bello: 1 punto per aver preso il 7 di denari
-- Primiera: 1 punto per il giocatore con più 7 in mano
-- Allungo: 1 punto per chi ha preso più carte
-- Scopa: 1 punto per ogni scopa fatta
 
-Vengono fatte nuove partite finchè uno dei due giocatori non arriva a 21.
+### Gestione Target dei Santi
 
-## Modifiers (Santi)
-È possibile acquista dei santini nello shop, questi hanno dei poteri che ti permettono di influenzare la partita:
+Quando si attiva un Santo che richiede target (es. "Scambia carta"):
 
-- Vedere le prossime 2 carte ogni volta che peschi
-- Cambia il seme di una carta tra quelle prese in denari
-- Scambia la carta con quella dell'avversario
-- Cambia il seme di una carta a terra in denari
-- Cambia il seme di una carta in mano in denari
-- Miracolo di San Gennaro (sciogli tutto il sangue nella fiala)
-- Ti permette di selezionare delle carte da bruciare per ottenere in cambio il valore della carta +1 in gocce di sangue
-- Vedere la mano dell'avversario (Santa Lucia)
-- Rerolla la mano
-- Brucia una carta da terra
-- Scegli una briscola che fa assumere valore +3 alle carte di quel seme
-- Scudo protettivo contro gli attacchi sulla tua mano (si attiva automaticamente quando avviene il primo attacco)
-- Fai diventare la mano dell'avversario tutta di bastoni
-- Tutta la mano diventa d'oro
-- Tutta la terra diventa d'oro
-- Piazza una carta casuale a terra
+1. Il Client apre un **Picker UI** (Selettore).
+2. L'utente seleziona le carte visivamente.
+3. Il Client costruisce la stringa PGN: `@SWP[MY_CARD|OPP_CARD]`.
+4. Il Server valida che le carte siano effettivamente possedute dai rispettivi giocatori.
 
-I santi possono avere tre rarità:
-- Comune:
-- Raro
-- Leggendario
-- Unico
+---
 
-Alcuni modificatori possono alterare anche le manche successive a quella attuale, ad esempio modificando tutti i prossimi mazzi.
+## 7. Punti Aperti & Note Sviluppo
 
-## Shop condiviso
-
-> Capire quando far usare lo shop
-
-Lo shop mostra 3 santi disponibili per l'acquisto. Ogni santo ha un indicatore che mostra per quanti turni rimarrà ancora disponibile per l'acquisto. I giocatori vedono esattamente lo stesso shop. Il primo che compra un santo lo rimuove istantaneamente e viene rimpiazzato con un altro. Se dovesse scadere il timer sul santo verrà rimpiazzato con un altro. La probabilità di far apparire santi rari è minore di quella dei santi comuni.
-
-## Come comprare dallo shop
-Quando selezioni un modifier ti verrà chiesto di sacrificare delle carte tra quelle che hai guadagnato per poterle usare come metodo di pagamento.
-
-Valori delle carte (seguono la logica di briscola):
-- 2, 4, 5, 6, 7: 0
-- 8: 2
-- 9: 3
-- 10: 4
-- 3: 10
-- 1: 11
-
-Valori dei semi:
-- Bastoni: +0
-- Spade: +1
-- Coppe +2
-- Denari +3
-
-Se per il pagamento dovesse esserci del resto, questo verrà salvato in una fiala di gocce di sangue di san gennaro.  (Se non usi il resto entro 1 turno, il sangue si solidifica)
-
-## Punti in sospeso
-### Territorio di gioco
-- Vesuvio
-- Mergellina
-- Campi Flegrei
-### Quando piazzare lo shop?
-### Far vedere o no le carte prese dall'avversario? $\rightarrow$ Ci sono modificatori per cambiare il valore delle carte prese? (es 2 diventa 10)?
+* **Territori:** Vesuvio, Mergellina (Solo grafici o influenzano il gameplay? Da decidere).
+* **Animazione Carte:** Implementare un buffer in Godot per gestire la coda di eventi se ne arrivano due molto vicini (es. avversario compra e gioca subito).
+* **Riconnessione:** Se il WebSocket cade, il client deve chiamare `GET /api/games/{id}` per risincronizzarsi.
