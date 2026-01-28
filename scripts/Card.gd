@@ -1,55 +1,65 @@
 extends TextureButton
 class_name CardUI
 
-# Preload the data model for a card.
 const CardData = preload("res://scripts/models/CardData.gd")
 
-# Textures and paths from the user's project.
 const CARD_DECK_PATH = "res://assets/textures/deck/scopadeck.png"
 const CARD_BACK_PATH = "res://assets/textures/deck/scopaback.png"
 
-# Spritesheet configuration from user's example.
 const CARD_ATLAS_WIDTH = 142
 const CARD_ATLAS_HEIGHT = 190
-const SUIT_MAP = { "C": 0, "B": 1, "D": 2, "S": 3 } # Coppe, Bastoni, Denari, Spade
+const SUIT_MAP = { "C": 0, "B": 1, "D": 2, "S": 3 }
 
 @onready var card_sprite: TextureRect = $CardSprite
 @onready var selection_highlight: Panel = $SelectionHighlight
 
-signal card_clicked(card_data: CardData)
+signal card_ui_clicked(card_ui: CardUI)
 
 var card_data: CardData
-var is_face_down: bool = false
+var selected: bool = false
 
 func _ready() -> void:
-	# Connect the button's own signal to our handler.
 	pressed.connect(_on_pressed)
-	
-	# Set a minimum size to ensure the button is visible even without a texture.
 	custom_minimum_size = Vector2(CARD_ATLAS_WIDTH / 1.5, CARD_ATLAS_HEIGHT / 1.5)
-	
-	# The TextureRect should fill the button.
 	if is_instance_valid(card_sprite):
 		card_sprite.set_anchors_and_offsets_preset(Control.PRESET_FULL_RECT)
 
 # --- Public API ---
 
-## Main function to configure the card's appearance.
-func setup(p_card_data: CardData, p_is_face_down: bool = false) -> void:
+func setup(p_card_data: CardData) -> void:
 	self.card_data = p_card_data
-	self.is_face_down = p_is_face_down
-	
-	# The node might not be ready yet when setup is called.
 	if not is_inside_tree():
 		await ready
-		
 	update_display()
+	name = card_data._to_string() if is_instance_valid(card_data) else "Card"
 
-func set_selected(selected: bool) -> void:
-	if is_instance_valid(selection_highlight):
-		selection_highlight.visible = selected
+func toggle_selection() -> void:
+	selected = not selected
+	var tween = create_tween()
+	if selected:
+		# Use a springy-looking transition
+		tween.tween_property(self, "position:y", position.y - 20, 0.2).set_trans(Tween.TRANS_BACK).set_ease(Tween.EASE_OUT)
+		modulate = Color.WHITE
+	else:
+		tween.tween_property(self, "position:y", position.y + 20, 0.2).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_IN)
+		modulate = Color(0.9, 0.9, 0.9)
 
-# --- Internal Functions ---
+func set_selected_state(is_selected: bool):
+	if selected != is_selected:
+		toggle_selection()
+
+func animate_move(target_pos: Vector2, delay: float = 0.0) -> void:
+	var tween = create_tween()
+	tween.set_parallel(true)
+	# Set a delay if needed for staggered animations
+	tween.tween_interval(delay)
+	# Animate the movement
+	tween.tween_property(self, "global_position", target_pos, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
+	# Animate a subtle rotation for effect
+	tween.tween_property(self, "rotation_degrees", 5, 0.1).set_trans(Tween.TRANS_SINE)
+	tween.tween_property(self, "rotation_degrees", 0, 0.2).set_trans(Tween.TRANS_SINE).set_delay(0.15)
+
+# --- Internal ---
 
 func update_display() -> void:
 	if not is_instance_valid(card_data):
@@ -57,7 +67,8 @@ func update_display() -> void:
 		return
 	
 	visible = true
-	if is_face_down:
+	modulate = Color(0.9, 0.9, 0.9) # Default tint
+	if card_data._to_string() == "X":
 		show_card_back()
 	else:
 		show_card_front()
@@ -67,29 +78,20 @@ func show_card_back() -> void:
 		card_sprite.texture = load(CARD_BACK_PATH)
 
 func show_card_front() -> void:
-	if not is_instance_valid(card_sprite):
-		return
+	if not is_instance_valid(card_sprite): return
 	
 	var base_texture = load(CARD_DECK_PATH)
 	var rank_index = card_data.rank - 1
-	
 	if not SUIT_MAP.has(card_data.suit) or rank_index < 0:
-		printerr("CardUI: Invalid card data for atlas: ", card_data._to_string())
+		# This can happen for the "BACK" card, it's fine.
+		show_card_back()
 		return
 
 	var suit_index = SUIT_MAP[card_data.suit]
-
-	# Create a new AtlasTexture to represent the card's region in the spritesheet.
 	var atlas = AtlasTexture.new()
 	atlas.atlas = base_texture
-	atlas.region = Rect2(
-		rank_index * CARD_ATLAS_WIDTH,
-		suit_index * CARD_ATLAS_HEIGHT,
-		CARD_ATLAS_WIDTH,
-		CARD_ATLAS_HEIGHT
-	)
+	atlas.region = Rect2(rank_index * CARD_ATLAS_WIDTH, suit_index * CARD_ATLAS_HEIGHT, CARD_ATLAS_WIDTH, CARD_ATLAS_HEIGHT)
 	card_sprite.texture = atlas
 
 func _on_pressed() -> void:
-	# When this button is pressed, emit a signal with its data.
-	emit_signal("card_clicked", card_data)
+	emit_signal("card_ui_clicked", self)

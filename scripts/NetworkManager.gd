@@ -1,89 +1,111 @@
 extends Node
 
-## Manages all HTTP communication with the Laravel Scopa backend.
-## Emits the state_updated signal whenever a new game state is received.
+const PusherClient = preload("res://scripts/PusherClient.gd")
 
 signal state_updated(state: Dictionary)
 
-# The base URL of the backend API.
+# --- Config ---
 const BASE_URL = "http://localhost:8000/api"
+const REVERB_URL = "ws://127.0.0.1:6001/app/app-key?protocol=7&client=Godot&version=1.0.0"
 
-# We'll store the game ID once a game is started.
+# --- State ---
 var _game_id: String = ""
+var _player_id: String = "p1"
 
-# We use an HTTPRequest node to handle the requests.
+# --- Nodes ---
 var _http_request: HTTPRequest
+var _pusher_client: PusherClient
+
 
 func _ready() -> void:
-	# Create the HTTPRequest node and connect its completion signal.
+	# Setup HTTP client (always needed for actions)
 	_http_request = HTTPRequest.new()
 	add_child(_http_request)
 	_http_request.request_completed.connect(_on_request_completed)
+	
+	# Setup WebSocket client if enabled
+	print("NetworkManager: WebSocket mode enabled.")
+	_pusher_client = PusherClient.new()
+	add_child(_pusher_client)
+	_pusher_client.event_received.connect(_on_pusher_event_received)
+	_pusher_client.connect_to_server(REVERB_URL)
 
-## Starts a new game by calling the backend.
+
+# ------------------------------------------------------------------------------
+# --- Public API ---
+# ------------------------------------------------------------------------------
+
 func start_game() -> void:
-	# For now, we assume a simple POST request starts a game with default settings.
-	var error = _http_request.request(BASE_URL + "/games", [], HTTPClient.METHOD_POST)
+	var headers = ["Accept: application/json"]
+	var error = _http_request.request(BASE_URL + "/games", headers, HTTPClient.METHOD_POST)
 	if error != OK:
-		printerr("NetworkManager: An error occurred in HTTPRequest.start_game().")
+		printerr("NetworkManager: Error in HTTPRequest.start_game().")
 
-## Sends a player action to the server (e.g., playing a card).
 func send_action(action: String) -> void:
 	if _game_id.is_empty():
-		printerr("NetworkManager: Cannot send action, game ID is not set.")
+		printerr("NetworkManager: Cannot send action, no game ID.")
 		return
-
-	var url = "%s/games/%s/action" % [BASE_URL, _game_id]
-	
-	# The action is sent as a JSON payload.
-	var headers = ["Content-Type: application/json"]
+	var url = "%s/games/%s/action?player=%s" % [BASE_URL, _game_id, _player_id]
+	var headers = ["Content-Type: application/json", "Accept: application/json"]
 	var body = JSON.stringify({"action": action})
-	
 	var error = _http_request.request(url, headers, HTTPClient.METHOD_POST, body)
 	if error != OK:
-		printerr("NetworkManager: An error occurred in HTTPRequest.send_action().")
+		printerr("NetworkManager: Error in HTTPRequest.send_action().")
 
-## Callback for when any HTTP request finishes.
+
+# ------------------------------------------------------------------------------
+# --- Signal Handlers & Timers ---
+# ------------------------------------------------------------------------------
+
 func _on_request_completed(_result: int, response_code: int, _headers: PackedStringArray, body: PackedByteArray) -> void:
 	if response_code < 200 or response_code >= 300:
-		printerr("NetworkManager: Request failed with code %d. Body: %s" % [response_code, body.get_string_from_utf8()])
+		printerr("NetworkManager: HTTP request failed with code %d. Body: %s" % [response_code, body.get_string_from_utf8()])
 		return
 
 	var json = JSON.parse_string(body.get_string_from_utf8())
 	if json == null:
-		printerr("NetworkManager: Failed to parse JSON response.")
+		printerr("NetworkManager: Failed to parse HTTP JSON response.")
 		return
-
 	var data: Dictionary = json
 	
-	# If this is the initial response from POST /games, it only contains the game_id.
-	# A full game state should have a "players" dictionary.
-	if data.has("game_id") and not data.has("players"):
-		# Store the game id if we don't have it yet.
+	# Handle the initial response from POST /games
+	if data.has("game_id") and not data.has("state"):
 		if _game_id.is_empty():
 			_game_id = data.get("game_id")
-		
-		# Now, immediately fetch the full game state.
-		_fetch_game_state()
-		# Return early; do not emit the partial state.
-		return
+			print("NetworkManager: Game created with ID: ", _game_id)
+			_pusher_client.subscribe("game." + _game_id)
+			_fetch_http_game_state() # Fetch initial state
+			return
 
-	# If we are here, we should have a full game state.
-	# Let's ensure the game_id is stored.
-	if data.has("game_id") and _game_id.is_empty():
-		_game_id = data.get("game_id")
-	
-	# We emit the new, full state for the rest of the game to consume.
-	emit_signal("state_updated", data)
+	# Handle a full game state response
+	if data.has("state"):
+		emit_signal("state_updated", data)
 
 
-## Fetches the full game state from the server.
-func _fetch_game_state() -> void:
+func _on_pusher_event_received(event_name: String, data: Variant) -> void:
+	print("NetworkManager: WebSocket event received '", event_name, "' with data: ", data)
+	if event_name == "GameStateUpdated" and data is Dictionary:
+		var state_key = "state" + _player_id.to_upper() # stateP1 or stateP2
+		if data.has(state_key):
+			var player_state = data[state_key]
+			emit_signal("state_updated", { "state": player_state })
+		else:
+			printerr("NetworkManager: GameStateUpdated event did not contain key '", state_key, "'")
+	elif event_name != "pusher:pong":
+		printerr("NetworkManager: Received event '", event_name, "' with unexpected data type.")
+
+# ------------------------------------------------------------------------------
+# --- Private Helpers ---
+# ------------------------------------------------------------------------------
+
+## Fetches the full game state from the server via HTTP.
+func _fetch_http_game_state() -> void:
 	if _game_id.is_empty():
-		printerr("NetworkManager: Cannot fetch state, game ID is not set.")
+		printerr("NetworkManager: Cannot fetch state, no game ID.")
 		return
 	
-	var url = "%s/games/%s" % [BASE_URL, _game_id]
-	var error = _http_request.request(url, [], HTTPClient.METHOD_GET)
+	var url = "%s/games/%s?player=%s" % [BASE_URL, _game_id, _player_id]
+	var headers = ["Accept: application/json"]
+	var error = _http_request.request(url, headers, HTTPClient.METHOD_GET)
 	if error != OK:
-		printerr("NetworkManager: An error occurred in HTTPRequest._fetch_game_state().")
+		printerr("NetworkManager: Error fetching game state via HTTP.")

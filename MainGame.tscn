@@ -3,63 +3,53 @@
 [ext_resource type="Script" path="res://scripts/MainGame.gd" id="1_hy1an"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_cbe0c"]
-bg_color = Color(0.14902, 0.14902, 0.14902, 1)
+bg_color = Color(0.101961, 0.2, 0.14902, 1)
 
-[node name="MainGame" type="Node"]
+[node name="MainGame" type="Node2D"]
 script = ExtResource("1_hy1an")
-my_hand_container = NodePath("UI/VBox/MyHandContainer")
-opponent_hand_container = NodePath("UI/VBox/OpponentHandContainer")
-table_container = NodePath("UI/VBox/TableContainer")
-deck_count_label = NodePath("UI/VBox/CenterContainer/HBox/DeckCountLabel")
-start_button = NodePath("UI/StartButton")
 
 [node name="Background" type="Panel" parent="."]
-anchors_preset = 15
-anchor_right = 1.0
-anchor_bottom = 1.0
-grow_horizontal = 2
-grow_vertical = 2
+offset_right = 1280.0
+offset_bottom = 720.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_cbe0c")
+
+[node name="OpponentHandAnchor" type="Node2D" parent="."]
+position = Vector2(640, 80)
+
+[node name="TableAnchor" type="Node2D" parent="."]
+position = Vector2(640, 360)
+
+[node name="MyHandAnchor" type="Node2D" parent="."]
+position = Vector2(640, 620)
+
+[node name="DeckPosition" type="Node2D" parent="."]
+position = Vector2(120, 360)
+comment = "Position where new cards animate from."
+
+[node name="PlayerCapturedAnchor" type="Node2D" parent="."]
+position = Vector2(1160, 620)
+comment = "Position where player's captured cards animate to."
+
+[node name="OpponentCapturedAnchor" type="Node2D" parent="."]
+position = Vector2(1160, 80)
+comment = "Position where opponent's captured cards animate to."
 
 [node name="UI" type="CanvasLayer" parent="."]
 
-[node name="VBox" type="VBoxContainer" parent="UI"]
-anchors_preset = 15
-anchor_right = 1.0
+[node name="DeckCountLabel" type="Label" parent="UI"]
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
 anchor_bottom = 1.0
+offset_left = -20.0
+offset_top = -48.0
+offset_right = 20.0
+offset_bottom = -25.0
 grow_horizontal = 2
-grow_vertical = 2
-alignment = 1
-
-[node name="OpponentHandContainer" type="HBoxContainer" parent="UI/VBox"]
-layout_mode = 2
-size_flags_vertical = 3
-alignment = 1
-
-[node name="CenterContainer" type="VBoxContainer" parent="UI/VBox"]
-layout_mode = 2
-size_flags_vertical = 3
-
-[node name="TableContainer" type="HBoxContainer" parent="UI/VBox/CenterContainer"]
-layout_mode = 2
-size_flags_vertical = 3
-alignment = 1
-
-[node name="HBox" type="HBoxContainer" parent="UI/VBox/CenterContainer"]
-layout_mode = 2
-alignment = 2
-
-[node name="DeckCountLabel" type="Label" parent="UI/VBox/CenterContainer/HBox"]
-layout_mode = 2
-size_flags_horizontal = 10
+grow_vertical = 0
 text = "Deck: 40"
-horizontal_alignment = 2
-vertical_alignment = 1
-
-[node name="MyHandContainer" type="HBoxContainer" parent="UI/VBox"]
-layout_mode = 2
-size_flags_vertical = 3
-alignment = 1
+horizontal_alignment = 1
 
 [node name="StartButton" type="Button" parent="UI"]
 anchors_preset = 8
@@ -67,10 +57,42 @@ anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -50.0
-offset_top = -15.0
-offset_right = 50.0
-offset_bottom = 15.0
+offset_left = -60.0
+offset_top = -20.0
+offset_right = 60.0
+offset_bottom = 20.0
 grow_horizontal = 2
 grow_vertical = 2
 text = "Start Game"
+
+[node name="PlayButton" type="Button" parent="UI"]
+visible = false
+anchors_preset = 7
+anchor_left = 0.5
+anchor_top = 1.0
+anchor_right = 0.5
+anchor_bottom = 1.0
+offset_left = -50.0
+offset_top = -80.0
+offset_right = 50.0
+offset_bottom = -50.0
+grow_horizontal = 2
+grow_vertical = 0
+text = "Play"
+
+[node name="WaitingLabel" type="Label" parent="UI"]
+visible = false
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -150.0
+offset_top = -11.0
+offset_right = 150.0
+offset_bottom = 12.0
+grow_horizontal = 2
+grow_vertical = 2
+text = "Waiting for opponent..."
+horizontal_alignment = 1
+autowrap_mode = 2

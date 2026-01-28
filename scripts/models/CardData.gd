@@ -9,10 +9,10 @@ var suit: String
 
 # Constructor: takes the server's card code.
 func _init(server_code: String):
-	if server_code.is_empty():
-		printerr("CardData: Received an empty server_code.")
+	# Handle special "BACK" code for face-down cards gracefully.
+	if server_code.is_empty() or server_code == "BACK":
 		rank = -1
-		suit = "?"
+		suit = "X" # Invalid suit
 		return
 
 	suit = server_code.right(1)
@@ -21,6 +21,7 @@ func _init(server_code: String):
 	if not rank_str.is_valid_int():
 		printerr("CardData: Invalid rank string '%s' from server_code '%s'" % [rank_str, server_code])
 		rank = -1
+		suit = "X"
 		return
 		
 	rank = rank_str.to_int()
