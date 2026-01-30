@@ -65,21 +65,6 @@ grow_horizontal = 2
 grow_vertical = 2
 text = "Start Game"
 
-[node name="PlayButton" type="Button" parent="UI"]
-visible = false
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
-anchor_bottom = 1.0
-offset_left = -50.0
-offset_top = -80.0
-offset_right = 50.0
-offset_bottom = -50.0
-grow_horizontal = 2
-grow_vertical = 0
-text = "Play"
-
 [node name="WaitingLabel" type="Label" parent="UI"]
 visible = false
 anchors_preset = 8

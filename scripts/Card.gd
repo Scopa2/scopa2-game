@@ -28,10 +28,19 @@ func _ready() -> void:
 
 func setup(p_card_data: CardData) -> void:
 	self.card_data = p_card_data
+	disabled = false
 	if not is_inside_tree():
 		await ready
 	update_display()
 	name = card_data._to_string() if is_instance_valid(card_data) else "Card"
+
+func set_disabled_state(is_disabled: bool) -> void:
+	disabled = is_disabled
+	if is_disabled:
+		modulate = Color(0.5, 0.5, 0.5)
+		if selected: toggle_selection() # Deselect if disabling
+	else:
+		modulate = Color(0.9, 0.9, 0.9) if not selected else Color.WHITE
 
 func toggle_selection() -> void:
 	selected = not selected
@@ -55,9 +64,6 @@ func animate_move(target_pos: Vector2, delay: float = 0.0) -> void:
 	tween.tween_interval(delay)
 	# Animate the movement
 	tween.tween_property(self, "global_position", target_pos, 0.35).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)
-	# Animate a subtle rotation for effect
-	tween.tween_property(self, "rotation_degrees", 5, 0.1).set_trans(Tween.TRANS_SINE)
-	tween.tween_property(self, "rotation_degrees", 0, 0.2).set_trans(Tween.TRANS_SINE).set_delay(0.15)
 
 # --- Internal ---
 

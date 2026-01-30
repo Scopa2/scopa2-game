@@ -42,6 +42,7 @@ func start_game() -> void:
 		printerr("NetworkManager: Error in HTTPRequest.start_game().")
 
 func send_action(action: String) -> void:
+	print("NetworkManager: Sending action: ", action)
 	if _game_id.is_empty():
 		printerr("NetworkManager: Cannot send action, no game ID.")
 		return
@@ -83,7 +84,7 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 
 
 func _on_pusher_event_received(event_name: String, data: Variant) -> void:
-	print("NetworkManager: WebSocket event received '", event_name, "' with data: ", data)
+	# print("NetworkManager: WebSocket event received '", event_name, "' with data: ", data)
 	if event_name == "GameStateUpdated" and data is Dictionary:
 		var state_key = "state" + _player_id.to_upper() # stateP1 or stateP2
 		if data.has(state_key):
