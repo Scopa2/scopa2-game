@@ -223,14 +223,18 @@ func _on_server_state_updated(server_data: Dictionary) -> void:
 		_reset_selection()
 
 	# 2. Animate Last Move
-	var pgn = server_data.get("lastMovePgn", "")
+	var pgn = game_state.get("lastMovePgn", "")
+	if pgn == null: # Handle cases like first move
+		pgn = ""
 	if not pgn.is_empty():
 		# If it is now my turn, the last move was made by opponent (p2)
 		# If it is NOT my turn, the last move was made by me (p1)
 		var mover_id = "p2" if is_my_turn else "p1"
 		await _animate_move(pgn, mover_id)
+		print("Animation of last move complete.")
 
 	# 3. Reconcile State (Draws, Corrections)
+	print("Reconciling state...")
 	_reconcile_state(game_state)
 
 
@@ -271,12 +275,21 @@ func _animate_move(pgn: String, mover_id: String) -> void:
 	# --- 2. Animate ---
 	
 	if captured_codes.is_empty():
+
+		var hand_tween = create_tween()
+
 		# --- THROW ---
-		played_card_node.reparent(table_anchor)
-		# Move to a random-ish position on table or just center for now
-		# The reconcile will arrange it neatly later.
-		played_card_node.animate_move(table_anchor.global_position + Vector2(randf_range(-50, 50), randf_range(-20, 20)))
-		await get_tree().create_timer(0.4).timeout
+		var target_anchor = table_anchor
+		# 1. Move to table
+		# Calculate target position on table
+		var table_cards = _get_table_cards()
+		var card_width = 95
+		var total_width = (table_cards.size() + 1) * card_width
+		var start_x = -total_width / 2.0 + card_width / 2
+		var target_pos = Vector2(start_x + table_cards.size() * card_width, 0) # Local to table anchor
+		hand_tween.tween_property(played_card_node, "global_position", target_anchor.global_position + target_pos, 0.4).set_trans(Tween.TRANS_CUBIC).set_ease(Tween.EASE_OUT)	
+		await hand_tween.finished
+		
 	else:
 		# --- CAPTURE ---
 		var capture_pile = player_captured_anchor if mover_id == MY_PLAYER_ID else opponent_captured_anchor

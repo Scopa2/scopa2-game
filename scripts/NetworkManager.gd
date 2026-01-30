@@ -74,26 +74,20 @@ func _on_request_completed(_result: int, response_code: int, _headers: PackedStr
 		if _game_id.is_empty():
 			_game_id = data.get("game_id")
 			print("NetworkManager: Game created with ID: ", _game_id)
-			_pusher_client.subscribe("game." + _game_id)
+			#_pusher_client.subscribe("game." + _game_id)
+			_pusher_client.subscribe("games")
 			_fetch_http_game_state() # Fetch initial state
 			return
 
-	# Handle a full game state response
-	if data.has("state"):
+	# On first game load, get the state of the game from the response
+	if data.has("state") && data["state"]["turnIndex"] == 1:
 		emit_signal("state_updated", data)
 
 
 func _on_pusher_event_received(event_name: String, data: Variant) -> void:
-	# print("NetworkManager: WebSocket event received '", event_name, "' with data: ", data)
-	if event_name == "GameStateUpdated" and data is Dictionary:
-		var state_key = "state" + _player_id.to_upper() # stateP1 or stateP2
-		if data.has(state_key):
-			var player_state = data[state_key]
-			emit_signal("state_updated", { "state": player_state })
-		else:
-			printerr("NetworkManager: GameStateUpdated event did not contain key '", state_key, "'")
-	elif event_name != "pusher:pong":
-		printerr("NetworkManager: Received event '", event_name, "' with unexpected data type.")
+	print("NetworkManager: WebSocket event received '", event_name, "' with data: ", data)
+	if event_name == "game_sate_updated" and data is Dictionary:
+		emit_signal("state_updated", data)
 
 # ------------------------------------------------------------------------------
 # --- Private Helpers ---
