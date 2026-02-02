@@ -8,22 +8,24 @@
 
 config_version=5
 
+[animation]
+
+compatibility/default_parent_skeleton_in_mesh_instance_3d=true
+
 [application]
 
-config/name="Scopa 2 Thin Client"
-run/main_scene="res://MainGame.tscn"
-config/features=PackedStringArray("4.5", "Forward Plus")
+config/name="Scopa2"
+run/main_scene="uid://cfoie6wk0vxcj"
+config/features=PackedStringArray("4.6", "C#", "GL Compatibility")
 config/icon="res://icon.svg"
 
 [autoload]
 
-NetworkManager="*res://scripts/NetworkManager.gd"
+NetworkManager="*uid://j3saca7uciq4"
 
-[display]
+[dotnet]
 
-window/size/viewport_width=1280
-window/size/viewport_height=720
-window/stretch/mode="canvas_items"
+project/assembly_name="Scopa2"
 
 [rendering]
 

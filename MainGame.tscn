@@ -1,42 +1,39 @@
-[gd_scene load_steps=3 format=3 uid="uid://b2xec7a1f5boe"]
+[gd_scene format=3 uid="uid://cfoie6wk0vxcj"]
 
-[ext_resource type="Script" path="res://scripts/MainGame.gd" id="1_hy1an"]
+[ext_resource type="Script" uid="uid://btq74afgj8gv4" path="res://scripts/MainGame.cs" id="1_hy1an"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_cbe0c"]
 bg_color = Color(0.101961, 0.2, 0.14902, 1)
 
-[node name="MainGame" type="Node2D"]
+[node name="MainGame" type="Node2D" unique_id=1582397960]
 script = ExtResource("1_hy1an")
 
-[node name="Background" type="Panel" parent="."]
+[node name="Background" type="Panel" parent="." unique_id=1796774253]
 offset_right = 1280.0
 offset_bottom = 720.0
 theme_override_styles/panel = SubResource("StyleBoxFlat_cbe0c")
 
-[node name="OpponentHandAnchor" type="Node2D" parent="."]
+[node name="OpponentHandAnchor" type="Node2D" parent="." unique_id=60313372]
 position = Vector2(640, 80)
 
-[node name="TableAnchor" type="Node2D" parent="."]
+[node name="TableAnchor" type="Node2D" parent="." unique_id=1035452226]
 position = Vector2(640, 360)
 
-[node name="MyHandAnchor" type="Node2D" parent="."]
+[node name="MyHandAnchor" type="Node2D" parent="." unique_id=1134819000]
 position = Vector2(640, 620)
 
-[node name="DeckPosition" type="Node2D" parent="."]
+[node name="DeckPosition" type="Node2D" parent="." unique_id=857274517]
 position = Vector2(120, 360)
-comment = "Position where new cards animate from."
 
-[node name="PlayerCapturedAnchor" type="Node2D" parent="."]
+[node name="PlayerCapturedAnchor" type="Node2D" parent="." unique_id=2782676]
 position = Vector2(1160, 620)
-comment = "Position where player's captured cards animate to."
 
-[node name="OpponentCapturedAnchor" type="Node2D" parent="."]
+[node name="OpponentCapturedAnchor" type="Node2D" parent="." unique_id=1188692306]
 position = Vector2(1160, 80)
-comment = "Position where opponent's captured cards animate to."
 
-[node name="UI" type="CanvasLayer" parent="."]
+[node name="UI" type="CanvasLayer" parent="." unique_id=1093162476]
 
-[node name="DeckCountLabel" type="Label" parent="UI"]
+[node name="DeckCountLabel" type="Label" parent="UI" unique_id=690911107]
 anchors_preset = 7
 anchor_left = 0.5
 anchor_top = 1.0
@@ -51,7 +48,7 @@ grow_vertical = 0
 text = "Deck: 40"
 horizontal_alignment = 1
 
-[node name="StartButton" type="Button" parent="UI"]
+[node name="StartButton" type="Button" parent="UI" unique_id=1160515525]
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
@@ -65,7 +62,7 @@ grow_horizontal = 2
 grow_vertical = 2
 text = "Start Game"
 
-[node name="WaitingLabel" type="Label" parent="UI"]
+[node name="WaitingLabel" type="Label" parent="UI" unique_id=1760315625]
 visible = false
 anchors_preset = 8
 anchor_left = 0.5

@@ -1,7 +1,7 @@
-[gd_scene load_steps=4 format=3 uid="uid://cgrj6n2y5f2fa"]
+[gd_scene format=3 uid="uid://tpgs7jpwbqi4"]
 
-[ext_resource type="Script" path="res://scripts/Card.gd" id="1_jg1e8"]
-[ext_resource type="Texture2D" uid="uid://b5g0hka68s3lo" path="res://assets/textures/deck/scopadeck.png" id="2_abcde"]
+[ext_resource type="Script" uid="uid://yx2f4mfoyp0" path="res://scripts/CardUI.cs" id="1_jg1e8"]
+[ext_resource type="Texture2D" uid="uid://6xwi38x0edon" path="res://assets/textures/deck/scopadeck.png" id="2_abcde"]
 
 [sub_resource type="StyleBoxFlat" id="StyleBoxFlat_12345"]
 bg_color = Color(1, 1, 0, 0.3)
@@ -15,12 +15,12 @@ corner_radius_top_right = 5
 corner_radius_bottom_right = 5
 corner_radius_bottom_left = 5
 
-[node name="CardUI" type="TextureButton"]
+[node name="CardUI" type="TextureButton" unique_id=970705994]
 texture_filter = 1
 ignore_texture_size = true
 script = ExtResource("1_jg1e8")
 
-[node name="CardSprite" type="TextureRect" parent="."]
+[node name="CardSprite" type="TextureRect" parent="." unique_id=467981482]
 layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
@@ -31,7 +31,7 @@ texture = ExtResource("2_abcde")
 expand_mode = 1
 stretch_mode = 5
 
-[node name="SelectionHighlight" type="Panel" parent="."]
+[node name="SelectionHighlight" type="Panel" parent="." unique_id=874706687]
 visible = false
 layout_mode = 1
 anchors_preset = 15
