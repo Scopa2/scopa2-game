@@ -21,6 +21,8 @@ public partial class MainGame : Node2D
     private Label _deckCountLabel;
     private Button _startButton;
     private Label _waitingLabel;
+    private LineEdit _joinGameLineEdit;
+    private Button _joinGameButton;
 
     // State Management
     private Dictionary<string, CardUI> _cardNodes = new();
@@ -47,6 +49,8 @@ public partial class MainGame : Node2D
         _deckCountLabel = GetNode<Label>("UI/DeckCountLabel");
         _startButton = GetNode<Button>("UI/StartButton");
         _waitingLabel = GetNode<Label>("UI/WaitingLabel");
+        _joinGameLineEdit = GetNode<LineEdit>("UI/JoinGameLineEdit");
+        _joinGameButton = GetNode<Button>("UI/JoinGameButton");
 
         _networkManager = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
         if (!IsInstanceValid(_networkManager))
@@ -57,6 +61,25 @@ public partial class MainGame : Node2D
 
         _networkManager.StateUpdated += OnServerStateUpdated;
         _startButton.Pressed += OnStartButtonPressed;
+        _joinGameButton.Pressed += OnJoinButtonPressed;
+    }
+
+    private void OnJoinButtonPressed()
+    {
+        if (!IsInstanceValid(_joinGameLineEdit) || string.IsNullOrEmpty(_joinGameLineEdit.Text))
+        {
+            GD.PrintErr("MainGame: No game id entered to join.");
+            return;
+        }
+
+        string gameId = _joinGameLineEdit.Text.Trim();
+        GD.Print($"MainGame: Joining game {gameId}");
+        _networkManager.JoinGame(gameId);
+        // Hide start/join UI to avoid confusion
+        _startButton.Hide();
+        _joinGameButton.Hide();
+        _joinGameLineEdit.Hide();
+        _waitingLabel.Visible = true;
     }
 
     // Input Handling

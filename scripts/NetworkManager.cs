@@ -9,8 +9,8 @@ public partial class NetworkManager : Node
     [Signal]
     public delegate void StateUpdatedEventHandler(Godot.Collections.Dictionary state);
 
-    private const string BaseUrl = "http://localhost:8000/api";
-    private const string ReverbUrl = "ws://127.0.0.1:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
+    private const string BaseUrl = "http://100.76.114.126:8000/api";
+    private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
 
     private string _gameId = "";
     private string _playerId = "p1";
@@ -41,6 +41,28 @@ public partial class NetworkManager : Node
         {
             GD.PrintErr("NetworkManager: Error in HTTPRequest.StartGame().");
         }
+    }
+
+    // New: allow joining an existing game by id
+    public void JoinGame(string gameId)
+    {
+        if (string.IsNullOrEmpty(gameId))
+        {
+            GD.PrintErr("NetworkManager: JoinGame called with empty gameId.");
+            return;
+        }
+
+        _gameId = gameId;
+        GD.Print($"NetworkManager: Joining game {_gameId}");
+        // Subscribe to games channel and optionally the specific game channel when available
+        if (IsInstanceValid(_pusherClient))
+        {
+            _pusherClient.Subscribe("games");
+            // Try subscribing to the specific game channel; if not connected yet, subscription will be attempted once connected
+            _pusherClient.Subscribe("game." + _gameId);
+        }
+
+        FetchHttpGameState();
     }
 
     public void SendAction(string action)

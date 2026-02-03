@@ -78,3 +78,28 @@ grow_vertical = 2
 text = "Waiting for opponent..."
 horizontal_alignment = 1
 autowrap_mode = 2
+
+; Added Join UI controls
+[node name="JoinGameLineEdit" type="LineEdit" parent="UI" unique_id=2000000001]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -160.0
+offset_top = 30.0
+offset_right = -20.0
+offset_bottom = 60.0
+placeholder_text = "Paste game ID"
+
+[node name="JoinGameButton" type="Button" parent="UI" unique_id=2000000002]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = 30.0
+offset_top = 30.0
+offset_right = 90.0
+offset_bottom = 60.0
+text = "Join Game"
