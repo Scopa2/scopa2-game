@@ -464,6 +464,7 @@ public partial class MainGame : Node2D
 
     private void SyncAnchorGroup(string[] codes, Node2D anchor)
     {
+        int xCount = 0;
         for (int i = 0; i < codes.Length; i++)
         {
             string code = codes[i];
@@ -479,7 +480,8 @@ public partial class MainGame : Node2D
             }
             else if (code == "X")
             {
-                var existingX = FindAvailableXNode(anchor, i);
+                var existingX = FindAvailableXNode(anchor, xCount);
+                xCount++;
                 if (existingX != null)
                 {
                     cardNode = existingX;

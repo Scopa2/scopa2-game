@@ -39,6 +39,7 @@ public partial class CardData : RefCounted
 
     public override string ToString()
     {
+        if (Suit == "X") return "X";
         return $"{Rank}{Suit}";
     }
 }
