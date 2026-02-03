@@ -6,696 +6,638 @@ using System.Threading.Tasks;
 
 namespace Scopa2Game.Scripts;
 
+/// <summary>
+/// Main game controller for Scopa card game.
+/// Handles UI, game state synchronization, player input, and animations.
+/// </summary>
 public partial class MainGame : Control
 {
-    private const string MyPlayerId = "p2";
-    private const string CardBackPath = "res://assets/textures/deck/scopaback.png";
-    private PackedScene _cardScene;
+    #region Constants
+    
+    private const string PlayerId = "p2";
+    private const string CardBackTexturePath = "res://assets/textures/deck/scopaback.png";
+    private const float CardWidth = 95f;
+    private const float CardHeight = 127f;
+    private const int DeckVisualStackSize = 6;
+    
+    // Animation durations (in seconds) - keeping them snappy
+    private const float AnimDealCard = 0.25f;
+    private const float AnimPlayCard = 0.2f;
+    private const float AnimCollectCards = 0.18f;
+    private const float AnimCardStagger = 0.03f;
+    
+    #endregion
 
-    // Nodes - anchors are now Control nodes for responsive layout
-    private Control _opponentHandAnchor;
-    private Control _tableAnchor;
-    private Control _myHandAnchor;
-    private Control _deckPos;
-    private Control _playerCapturedAnchor;
-    private Control _opponentCapturedAnchor;
-    private Label _deckCountLabel;
-    private Button _startButton;
-    private Label _waitingLabel;
-    private LineEdit _joinGameLineEdit;
-    private Button _joinGameButton;
+    #region Node References
+    
+    private PackedScene _cardScene;
+    private NetworkManager _network;
+    
+    // Game areas
+    private Control _opponentHand;
+    private Control _table;
+    private Control _playerHand;
+    private Control _deckPosition;
+    private Control _playerCapturePile;
+    private Control _opponentCapturePile;
+    
+    // UI elements
     private Panel _menuPanel;
     private Panel _turnIndicator;
     private Label _turnLabel;
-    private Label _playerCaptureCountLabel;
-    private Label _opponentCaptureCountLabel;
+    private Label _deckCountLabel;
+    private Label _playerCaptureCount;
+    private Label _opponentCaptureCount;
+    private Label _waitingLabel;
+    private Button _startButton;
+    private Button _joinButton;
+    private LineEdit _gameIdInput;
     
-    // Deck visualization
-    private List<TextureRect> _deckVisualCards = new();
-    private const int MaxDeckVisualCards = 6;
+    // Deck visual stack
+    private readonly List<TextureRect> _deckVisuals = new();
+    
+    #endregion
 
-    // State Management
-    private Dictionary<string, CardUI> _cardNodes = new();
-    private List<CardUI> _playerCapturedNodes = new();
-    private List<CardUI> _opponentCapturedNodes = new();
-    private bool _isMyTurn = false;
+    #region Game State
+    
+    private readonly Dictionary<string, CardUI> _cardRegistry = new();
+    private readonly List<CardUI> _playerCaptured = new();
+    private readonly List<CardUI> _opponentCaptured = new();
+    
+    private bool _isPlayerTurn;
+    private CardUI _selectedCard;
+    private readonly List<CardUI> _selectedTableCards = new();
+    
+    #endregion
 
-    // Input state machine
-    private CardUI _selectedHandCard = null;
-    private List<CardUI> _selectedTableCards = new();
-
-    private NetworkManager _networkManager;
-
+    #region Initialization
+    
     public override void _Ready()
     {
+        CacheNodeReferences();
+        CreateDeckVisuals();
+        ConnectSignals();
+    }
+    
+    private void CacheNodeReferences()
+    {
         _cardScene = GD.Load<PackedScene>("res://card.tscn");
-
-        // Get anchors from new structure
-        _opponentHandAnchor = GetNode<Control>("GameArea/OpponentHandAnchor");
-        _tableAnchor = GetNode<Control>("GameArea/TableAnchor");
-        _myHandAnchor = GetNode<Control>("GameArea/MyHandAnchor");
-        _deckPos = GetNode<Control>("GameArea/DeckArea/VBoxContainer/DeckVisualContainer/DeckPosition");
-        _playerCapturedAnchor = GetNode<Control>("GameArea/PlayerCapturedArea/VBox/PlayerCapturedAnchor");
-        _opponentCapturedAnchor = GetNode<Control>("GameArea/OpponentCapturedArea/VBox/OpponentCapturedAnchor");
+        _network = GetNode<NetworkManager>("/root/NetworkManager");
         
-        // UI Elements
-        _deckCountLabel = GetNode<Label>("GameArea/DeckArea/VBoxContainer/DeckCountLabel");
-        _startButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/StartButton");
-        _waitingLabel = GetNode<Label>("UI/WaitingLabel");
-        _joinGameLineEdit = GetNode<LineEdit>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameLineEdit");
-        _joinGameButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
+        // Game areas
+        _opponentHand = GetNode<Control>("GameArea/OpponentHandAnchor");
+        _table = GetNode<Control>("GameArea/TableAnchor");
+        _playerHand = GetNode<Control>("GameArea/MyHandAnchor");
+        _deckPosition = GetNode<Control>("GameArea/DeckArea/VBoxContainer/DeckVisualContainer/DeckPosition");
+        _playerCapturePile = GetNode<Control>("GameArea/PlayerCapturedArea/VBox/PlayerCapturedAnchor");
+        _opponentCapturePile = GetNode<Control>("GameArea/OpponentCapturedArea/VBox/OpponentCapturedAnchor");
+        
+        // UI
         _menuPanel = GetNode<Panel>("UI/MenuPanel");
         _turnIndicator = GetNode<Panel>("UI/TurnIndicator");
         _turnLabel = GetNode<Label>("UI/TurnIndicator/TurnLabel");
-        _playerCaptureCountLabel = GetNode<Label>("GameArea/PlayerCapturedArea/VBox/PlayerCaptureCount");
-        _opponentCaptureCountLabel = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/OpponentCaptureCount");
-
-        // Initialize deck visualization
-        InitializeDeckVisual();
-
-        _networkManager = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
-        if (!IsInstanceValid(_networkManager))
-        {
-            GD.PrintErr("MainGame: NetworkManager autoload not found.");
-            return;
-        }
-
-        _networkManager.StateUpdated += OnServerStateUpdated;
-        _startButton.Pressed += OnStartButtonPressed;
-        _joinGameButton.Pressed += OnJoinButtonPressed;
+        _deckCountLabel = GetNode<Label>("GameArea/DeckArea/VBoxContainer/DeckCountLabel");
+        _playerCaptureCount = GetNode<Label>("GameArea/PlayerCapturedArea/VBox/PlayerCaptureCount");
+        _opponentCaptureCount = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/OpponentCaptureCount");
+        _waitingLabel = GetNode<Label>("UI/WaitingLabel");
+        _startButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/StartButton");
+        _joinButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
+        _gameIdInput = GetNode<LineEdit>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameLineEdit");
     }
     
-    private void InitializeDeckVisual()
+    private void CreateDeckVisuals()
     {
-        var deckTexture = GD.Load<Texture2D>(CardBackPath);
+        var texture = GD.Load<Texture2D>(CardBackTexturePath);
         
-        for (int i = 0; i < MaxDeckVisualCards; i++)
+        for (int i = 0; i < DeckVisualStackSize; i++)
         {
-            var cardBack = new TextureRect
+            var card = new TextureRect
             {
-                Texture = deckTexture,
-                CustomMinimumSize = new Vector2(60, 84),
+                Texture = texture,
+                CustomMinimumSize = new Vector2(CardWidth, CardHeight),
                 ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
                 StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-                Position = new Vector2(-30 + i * 1.5f, -42 + i * -2f),
-                Modulate = new Color(1, 1, 1, 1f - (i * 0.05f))
+                Position = new Vector2(-CardWidth / 2 + i * 1.5f, -CardHeight / 2 - i * 2f),
+                Rotation = Mathf.DegToRad(-2 + i * 0.8f),
+                Modulate = new Color(1, 1, 1, 1f - i * 0.05f)
             };
             
-            // Add slight rotation for stacked effect
-            cardBack.Rotation = Mathf.DegToRad(-2 + i * 0.8f);
-            
-            _deckPos.AddChild(cardBack);
-            _deckVisualCards.Add(cardBack);
+            _deckPosition.AddChild(card);
+            _deckVisuals.Add(card);
         }
         
-        UpdateDeckVisual(40);
+        UpdateDeckDisplay(40);
     }
     
-    private void UpdateDeckVisual(int deckSize)
+    private void ConnectSignals()
     {
-        _deckCountLabel.Text = deckSize.ToString();
-        
-        // Show/hide deck cards based on remaining cards
-        int visibleCards = Mathf.Min(MaxDeckVisualCards, Mathf.CeilToInt(deckSize / 6.0f));
-        
-        for (int i = 0; i < _deckVisualCards.Count; i++)
-        {
-            _deckVisualCards[i].Visible = i < visibleCards && deckSize > 0;
-        }
-        
-        // Subtle pulse animation when deck is low
-        if (deckSize > 0 && deckSize <= 6)
-        {
-            foreach (var card in _deckVisualCards)
-            {
-                if (card.Visible)
-                {
-                    var tween = CreateTween();
-                    tween.SetLoops(2);
-                    tween.TweenProperty(card, "modulate", new Color(1.2f, 1.1f, 0.9f, 1), 0.3f);
-                    tween.TweenProperty(card, "modulate", new Color(1, 1, 1, 1), 0.3f);
-                }
-            }
-        }
+        _network.StateUpdated += OnGameStateReceived;
+        _startButton.Pressed += OnStartPressed;
+        _joinButton.Pressed += OnJoinPressed;
     }
     
-    private void UpdateTurnIndicator()
-    {
-        _turnIndicator.Visible = true;
-        
-        if (_isMyTurn)
-        {
-            _turnLabel.Text = "YOUR TURN";
-            _turnLabel.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f, 1f));
-        }
-        else
-        {
-            _turnLabel.Text = "OPPONENT'S TURN";
-            _turnLabel.AddThemeColorOverride("font_color", new Color(1f, 0.7f, 0.5f, 1f));
-        }
-    }
-    
-    private void UpdateCaptureCountLabels()
-    {
-        _playerCaptureCountLabel.Text = _playerCapturedNodes.Count.ToString();
-        _opponentCaptureCountLabel.Text = _opponentCapturedNodes.Count.ToString();
-    }
+    #endregion
 
-    private void OnJoinButtonPressed()
+    #region UI Event Handlers
+    
+    private void OnStartPressed()
     {
-        if (!IsInstanceValid(_joinGameLineEdit) || string.IsNullOrEmpty(_joinGameLineEdit.Text))
-        {
-            GD.PrintErr("MainGame: No game id entered to join.");
-            return;
-        }
-
-        string gameId = _joinGameLineEdit.Text.Trim();
-        GD.Print($"MainGame: Joining game {gameId}");
-        _networkManager.JoinGame(gameId);
-        // Hide menu panel
+        _network.StartGame();
         _menuPanel.Hide();
-        _waitingLabel.Visible = true;
+        _waitingLabel.Show();
     }
-
-    // Input Handling
     
-    private void OnCardClicked(CardUI cardNode)
+    private void OnJoinPressed()
     {
-        if (!_isMyTurn) return;
-
-        if (cardNode.GetParent() == _myHandAnchor)
-        {
-            HandleHandCardSelection(cardNode);
-        }
-        else if (cardNode.GetParent() == _tableAnchor)
-        {
-            HandleTableCardSelection(cardNode);
-        }
+        var gameId = _gameIdInput.Text.Trim();
+        if (string.IsNullOrEmpty(gameId)) return;
+        
+        _network.JoinGame(gameId);
+        _menuPanel.Hide();
+        _waitingLabel.Show();
     }
+    
+    #endregion
 
-    private void HandleHandCardSelection(CardUI cardNode)
+    #region Card Input Handling
+    
+    private void OnCardClicked(CardUI card)
     {
-        if (_selectedHandCard == cardNode)
+        if (!_isPlayerTurn) return;
+        
+        bool isHandCard = card.GetParent() == _playerHand;
+        bool isTableCard = card.GetParent() == _table;
+        
+        if (isHandCard) HandleHandCardClick(card);
+        else if (isTableCard) HandleTableCardClick(card);
+    }
+    
+    private void HandleHandCardClick(CardUI card)
+    {
+        // Deselect if clicking same card
+        if (_selectedCard == card)
         {
-            _selectedHandCard.SetSelectedState(false);
-            _selectedHandCard = null;
-            ResetTableSelection();
+            DeselectAll();
             return;
         }
-
-        if (IsInstanceValid(_selectedHandCard))
-        {
-            _selectedHandCard.SetSelectedState(false);
-            ResetTableSelection();
-        }
-
-        _selectedHandCard = cardNode;
-        _selectedHandCard.SetSelectedState(true);
-
-        var tableCards = GetTableCards();
-        int rank = cardNode.CardData.Rank;
-
+        
+        // Select new hand card
+        DeselectAll();
+        _selectedCard = card;
+        card.SetSelectedState(true);
+        
+        // Determine valid table targets
+        var tableCards = GetCardsIn(_table);
+        int rank = card.CardData.Rank;
+        
+        // Check for direct rank matches first
         var directMatches = tableCards.Where(c => c.CardData.Rank == rank).ToList();
-
         if (directMatches.Any())
         {
-            SetTableCardsInteractive(directMatches);
+            EnableOnlyCards(directMatches);
             return;
         }
-
-        var validSubsetCards = GetCardsValidForSum(rank, tableCards);
-
-        if (!validSubsetCards.Any())
+        
+        // Check for sum combinations
+        var validForSum = FindCardsValidForSum(rank, tableCards);
+        if (validForSum.Any())
         {
-            PerformActionThrow(cardNode);
+            EnableOnlyCards(validForSum);
+            return;
         }
-        else
-        {
-            SetTableCardsInteractive(validSubsetCards);
-        }
+        
+        // No captures possible - auto throw
+        ExecuteThrow(card);
     }
-
-    private void HandleTableCardSelection(CardUI cardNode)
+    
+    private void HandleTableCardClick(CardUI card)
     {
-        if (!IsInstanceValid(_selectedHandCard)) return;
-        if (cardNode.Disabled) return;
-
-        if (_selectedTableCards.Contains(cardNode))
-        {
-            cardNode.SetSelectedState(false);
-            _selectedTableCards.Remove(cardNode);
-        }
-        else
-        {
-            cardNode.SetSelectedState(true);
-            _selectedTableCards.Add(cardNode);
-        }
-
-        int currentSum = _selectedTableCards.Sum(c => c.CardData.Rank);
-
-        if (currentSum == _selectedHandCard.CardData.Rank)
-        {
-            PerformActionCapture(_selectedHandCard, _selectedTableCards);
-        }
-        else if (currentSum < _selectedHandCard.CardData.Rank)
-        {
-            int needed = _selectedHandCard.CardData.Rank - currentSum;
-            var remainingTable = GetTableCards().Where(c => !_selectedTableCards.Contains(c)).ToList();
-            var validNext = GetCardsValidForSum(needed, remainingTable);
-
-            var allInteractive = new List<CardUI>(_selectedTableCards);
-            allInteractive.AddRange(validNext);
-            SetTableCardsInteractive(allInteractive);
-        }
-    }
-
-    private void PerformActionThrow(CardUI cardNode)
-    {
-        string actionStr = cardNode.CardData.ToString();
-        GD.Print("Auto-throwing: ", actionStr);
-        SendNetworkAction(actionStr);
-    }
-
-    private void PerformActionCapture(CardUI handCard, List<CardUI> targets)
-    {
-        string handStr = handCard.CardData.ToString();
-        var tableStrs = targets.Select(c => c.CardData.ToString());
-        string targetsStr = string.Join("+", tableStrs);
-        string actionStr = $"{handStr}x{targetsStr}";
-
-        GD.Print("Auto-capturing: ", actionStr);
-        SendNetworkAction(actionStr);
-    }
-
-    private void SendNetworkAction(string actionStr)
-    {
-        _networkManager.SendAction(actionStr);
-        ResetSelection();
-        _isMyTurn = false;
-        _waitingLabel.Visible = true;
-    }
-
-    private void ResetSelection()
-    {
-        if (IsInstanceValid(_selectedHandCard))
-        {
-            _selectedHandCard.SetSelectedState(false);
-        }
-        ResetTableSelection();
-        _selectedHandCard = null;
-    }
-
-    private void ResetTableSelection()
-    {
-        foreach (var card in _selectedTableCards)
+        if (_selectedCard == null || card.Disabled) return;
+        
+        // Toggle table card selection
+        if (_selectedTableCards.Contains(card))
         {
             card.SetSelectedState(false);
-        }
-        _selectedTableCards.Clear();
-        foreach (var card in GetTableCards())
-        {
-            card.SetDisabledState(false);
-        }
-    }
-
-    private List<CardUI> GetTableCards()
-    {
-        var cards = new List<CardUI>();
-        foreach (var child in _tableAnchor.GetChildren())
-        {
-            if (child is CardUI c && !c.IsQueuedForDeletion())
-            {
-                cards.Add(c);
-            }
-        }
-        return cards;
-    }
-
-    private void SetTableCardsInteractive(List<CardUI> enabledCards)
-    {
-        var all = GetTableCards();
-        foreach (var c in all)
-        {
-            c.SetDisabledState(!enabledCards.Contains(c));
-        }
-    }
-
-    private List<CardUI> GetCardsValidForSum(int target, List<CardUI> pool)
-    {
-        var valid = new List<CardUI>();
-        for (int i = 0; i < pool.Count; i++)
-        {
-            var c = pool[i];
-            if (c.CardData.Rank > target) continue;
-            if (c.CardData.Rank == target)
-            {
-                valid.Add(c);
-                continue;
-            }
-
-            var remainingPool = new List<CardUI>(pool);
-            remainingPool.RemoveAt(i);
-            if (CanSum(target - c.CardData.Rank, remainingPool))
-            {
-                valid.Add(c);
-            }
-        }
-        return valid;
-    }
-
-    private bool CanSum(int target, List<CardUI> pool)
-    {
-        if (target == 0) return true;
-        if (target < 0) return false;
-        if (pool.Count == 0) return false;
-
-        var first = pool[0];
-        var rest = pool.Skip(1).ToList();
-
-        if (CanSum(target - first.CardData.Rank, rest)) return true;
-        if (CanSum(target, rest)) return true;
-
-        return false;
-    }
-
-    // State Sync
-
-    private async void OnServerStateUpdated(Godot.Collections.Dictionary serverData)
-    {
-        if (!serverData.ContainsKey("state")) return;
-        var gameState = serverData["state"].As<Godot.Collections.Dictionary>();
-
-        _isMyTurn = bool.Parse(gameState["isMyTurn"].ToString());
-        _waitingLabel.Visible = false;
-        _menuPanel.Visible = false;
-        
-        UpdateTurnIndicator();
-
-        if (!_isMyTurn)
-        {
-            ResetSelection();
-        }
-
-        string pgn = gameState.ContainsKey("lastMovePgn") && gameState["lastMovePgn"].VariantType != Variant.Type.Nil 
-            ? gameState["lastMovePgn"].AsString() : "";
-        
-        if (!string.IsNullOrEmpty(pgn))
-        {
-            string moverId =   _isMyTurn ? _getOpponentId() : _getMyPlayerId();
-            await AnimateMove(pgn, moverId);
-            GD.Print("Animation of last move complete.");
-        }
-
-        GD.Print("Reconciling state...");
-        ReconcileState(gameState);
-    }
-    
-    private string _getOpponentId()
-    {
-        return MyPlayerId == "p1" ? "p2" : "p1";
-    }
-    
-    private string _getMyPlayerId()
-    {
-        return MyPlayerId;
-    }
-
-    private async Task AnimateMove(string pgn, string moverId)
-    {
-        GD.Print("Animating move: ", pgn, " by ", moverId);
-
-        var parts = pgn.Split("x");
-        string playedCardCode = parts[0];
-        string[] capturedCodes = parts.Length > 1 ? parts[1].Split("+") : System.Array.Empty<string>();
-
-        CardUI playedCardNode = null;
-
-        if (moverId == MyPlayerId)
-        {
-            if (_cardNodes.ContainsKey(playedCardCode))
-            {
-                playedCardNode = _cardNodes[playedCardCode];
-            }
+            _selectedTableCards.Remove(card);
         }
         else
         {
-            var oppCards = GetCardsInAnchor(_opponentHandAnchor);
-            if (oppCards.Count > 0)
-            {
-                // Simple random pick for visual effect
-                int idx = (int)(GD.Randi() % oppCards.Count);
-                playedCardNode = oppCards[idx];
-                
-                string oldCode = playedCardNode.Name; // Likely "OPP..."
-                _cardNodes.Remove(oldCode); // Key might not be in dict if it was "X" or "Card"
-                
-                // We need to re-key it if it was tracked.
-                // In Setup, it might have been tracked as something else.
-                // Actually, opponent cards are likely "X"s or unknown.
-                
-                playedCardNode.Setup(new CardData(playedCardCode));
-                _cardNodes[playedCardCode] = playedCardNode;
-                playedCardNode.ShowCardFront();
-            }
+            card.SetSelectedState(true);
+            _selectedTableCards.Add(card);
         }
-
-        if (!IsInstanceValid(playedCardNode))
+        
+        int currentSum = _selectedTableCards.Sum(c => c.CardData.Rank);
+        int targetRank = _selectedCard.CardData.Rank;
+        
+        // Exact match - execute capture
+        if (currentSum == targetRank)
         {
-            GD.PrintErr("Could not find card node for animation: ", playedCardCode);
+            ExecuteCapture(_selectedCard, _selectedTableCards.ToList());
             return;
         }
-
-        if (capturedCodes.Length == 0)
+        
+        // Under target - update valid next picks
+        if (currentSum < targetRank)
         {
-            var handTween = CreateTween();
-            var targetAnchor = _tableAnchor;
-            var tableCards = GetTableCards();
+            int remaining = targetRank - currentSum;
+            var availableCards = GetCardsIn(_table).Where(c => !_selectedTableCards.Contains(c)).ToList();
+            var validNext = FindCardsValidForSum(remaining, availableCards);
             
-            // Calculate position relative to anchor center
-            Vector2 anchorSize = targetAnchor.Size;
-            Vector2 anchorCenter = anchorSize / 2;
-            float cardWidth = Mathf.Min(95, anchorSize.X / (tableCards.Count + 2));
-            float totalWidth = (tableCards.Count + 1) * cardWidth;
-            float startX = anchorCenter.X - totalWidth / 2.0f + cardWidth / 2.0f;
-            float cardHeight = playedCardNode.CustomMinimumSize.Y;
-            float yPos = anchorCenter.Y - cardHeight / 2.0f;
-            Vector2 targetPos = new Vector2(startX + tableCards.Count * cardWidth, yPos);
-
-            handTween.TweenProperty(playedCardNode, "global_position", targetAnchor.GlobalPosition + targetPos, 0.4f)
-                .SetTrans(Tween.TransitionType.Cubic)
-                .SetEase(Tween.EaseType.Out);
-            
-            await ToSignal(handTween, Tween.SignalName.Finished);
-        }
-        else
-        {
-            var capturePile = moverId == MyPlayerId ? _playerCapturedAnchor : _opponentCapturedAnchor;
-            var capturedNodes = new List<CardUI>();
-
-            foreach (var code in capturedCodes)
-            {
-                if (_cardNodes.ContainsKey(code))
-                {
-                    capturedNodes.Add(_cardNodes[code]);
-                }
-            }
-
-            var visitTween = CreateTween();
-            foreach (var target in capturedNodes)
-            {
-                visitTween.TweenProperty(playedCardNode, "global_position", target.GlobalPosition, 0.3f)
-                    .SetTrans(Tween.TransitionType.Cubic)
-                    .SetEase(Tween.EaseType.Out);
-                visitTween.TweenInterval(0.1f);
-            }
-
-            await ToSignal(visitTween, Tween.SignalName.Finished);
-
-            var flyTween = CreateTween().SetParallel(true);
-            var allMoving = new List<CardUI> { playedCardNode };
-            allMoving.AddRange(capturedNodes);
-            
-            // Position cards in capture pile centered
-            Vector2 pileCenter = capturePile.Size / 2;
-
-            for(int i=0; i < allMoving.Count; i++)
-            {
-                var c = allMoving[i];
-                c.Reparent(capturePile);
-                
-                // Stack cards with slight offset for visual depth
-                Vector2 stackPos = new Vector2(pileCenter.X - 30, pileCenter.Y - 40 - 2 * (capturePile.GetChildCount() + i));
-                flyTween.TweenProperty(c, "position", stackPos, 0.4f)
-                    .SetTrans(Tween.TransitionType.Back)
-                    .SetEase(Tween.EaseType.InOut);
-            }
-
-            await ToSignal(flyTween, Tween.SignalName.Finished);
-
-            if (moverId == MyPlayerId)
-                _playerCapturedNodes.AddRange(allMoving);
-            else
-                _opponentCapturedNodes.AddRange(allMoving);
+            EnableOnlyCards(_selectedTableCards.Concat(validNext).ToList());
         }
     }
-
-    private void ReconcileState(Godot.Collections.Dictionary gameState)
+    
+    private void DeselectAll()
     {
-        var allStateCodes = new List<string>();
+        _selectedCard?.SetSelectedState(false);
+        _selectedCard = null;
+        
+        foreach (var card in _selectedTableCards)
+            card.SetSelectedState(false);
+        _selectedTableCards.Clear();
+        
+        foreach (var card in GetCardsIn(_table))
+            card.SetDisabledState(false);
+    }
+    
+    private void EnableOnlyCards(List<CardUI> enabled)
+    {
+        foreach (var card in GetCardsIn(_table))
+            card.SetDisabledState(!enabled.Contains(card));
+    }
+    
+    #endregion
 
-        // My Hand
-        var players = gameState.ContainsKey("players") ? gameState["players"].As<Godot.Collections.Dictionary>() : new Godot.Collections.Dictionary();
-        var myPlayer = players.ContainsKey(MyPlayerId) ? players[MyPlayerId].As<Godot.Collections.Dictionary>() : new Godot.Collections.Dictionary();
-        var myHandCodes = myPlayer.ContainsKey("hand") ? myPlayer["hand"].AsStringArray() : System.Array.Empty<string>();
-        SyncAnchorGroup(myHandCodes, _myHandAnchor);
-        allStateCodes.AddRange(myHandCodes);
+    #region Game Actions
+    
+    private void ExecuteThrow(CardUI card)
+    {
+        SendAction(card.CardData.ToString());
+    }
+    
+    private void ExecuteCapture(CardUI handCard, List<CardUI> tableCards)
+    {
+        var captured = string.Join("+", tableCards.Select(c => c.CardData.ToString()));
+        SendAction($"{handCard.CardData}x{captured}");
+    }
+    
+    private void SendAction(string action)
+    {
+        GD.Print($"Action: {action}");
+        _network.SendAction(action);
+        DeselectAll();
+        _isPlayerTurn = false;
+        _waitingLabel.Show();
+    }
+    
+    #endregion
 
-        // Opponent Hand
-        string opponentId = _getOpponentId();
-        var oppPlayer = players.ContainsKey(opponentId) ? players[opponentId].As<Godot.Collections.Dictionary>() : new Godot.Collections.Dictionary();
-        var oppHandCodes = oppPlayer.ContainsKey("hand") ? oppPlayer["hand"].AsStringArray() : System.Array.Empty<string>();
-        SyncAnchorGroup(oppHandCodes, _opponentHandAnchor);
-        allStateCodes.AddRange(oppHandCodes);
-
-        // Table
-        var tableCodes = gameState.ContainsKey("table") ? gameState["table"].AsStringArray() : System.Array.Empty<string>();
-        SyncAnchorGroup(tableCodes, _tableAnchor);
-        allStateCodes.AddRange(tableCodes);
-
-        // Deck - update visual representation
-        var deckArray = gameState.ContainsKey("deck") ? gameState["deck"].As<Godot.Collections.Array>() : new Godot.Collections.Array();
-        UpdateDeckVisual(deckArray.Count);
+    #region State Synchronization
+    
+    private async void OnGameStateReceived(Godot.Collections.Dictionary data)
+    {
+        if (!data.ContainsKey("state")) return;
+        
+        var state = data["state"].As<Godot.Collections.Dictionary>();
+        _isPlayerTurn = bool.Parse(state["isMyTurn"].ToString());
+        
+        // Hide menu, show game
+        _menuPanel.Hide();
+        _waitingLabel.Hide();
+        UpdateTurnDisplay();
+        
+        if (!_isPlayerTurn) DeselectAll();
+        
+        // Animate last move if present
+        string lastMove = GetString(state, "lastMovePgn");
+        if (!string.IsNullOrEmpty(lastMove))
+        {
+            string mover = _isPlayerTurn ? OpponentId : PlayerId;
+            await AnimateLastMove(lastMove, mover);
+        }
+        
+        // Sync board state
+        SyncGameState(state);
+    }
+    
+    private void SyncGameState(Godot.Collections.Dictionary state)
+    {
+        var players = state["players"].As<Godot.Collections.Dictionary>();
+        
+        // Sync hands
+        var myData = players[PlayerId].As<Godot.Collections.Dictionary>();
+        var oppData = players[OpponentId].As<Godot.Collections.Dictionary>();
+        
+        string[] myHand = GetStringArray(myData, "hand");
+        string[] oppHand = GetStringArray(oppData, "hand");
+        string[] tableCards = GetStringArray(state, "table");
+        
+        SyncCardGroup(myHand, _playerHand);
+        SyncCardGroup(oppHand, _opponentHand);
+        SyncCardGroup(tableCards, _table);
+        
+        // Update deck display
+        var deck = state.ContainsKey("deck") ? state["deck"].As<Godot.Collections.Array>() : new();
+        UpdateDeckDisplay(deck.Count);
         
         // Update capture counts
-        UpdateCaptureCountLabels();
-
-        // Cleanup
-        CleanupAnchor(_myHandAnchor, myHandCodes);
-        CleanupAnchor(_opponentHandAnchor, oppHandCodes);
-        CleanupAnchor(_tableAnchor, tableCodes);
+        _playerCaptureCount.Text = _playerCaptured.Count.ToString();
+        _opponentCaptureCount.Text = _opponentCaptured.Count.ToString();
+        
+        // Clean up removed cards
+        CleanupArea(_playerHand, myHand);
+        CleanupArea(_opponentHand, oppHand);
+        CleanupArea(_table, tableCards);
     }
-
-    private void SyncAnchorGroup(string[] codes, Control anchor)
+    
+    private void SyncCardGroup(string[] codes, Control area)
     {
-        int xCount = 0;
-        Vector2 anchorSize = anchor.Size;
-        Vector2 anchorCenter = anchorSize / 2;
+        var center = area.Size / 2;
+        int hiddenCount = 0;
         
         for (int i = 0; i < codes.Length; i++)
         {
             string code = codes[i];
-            CardUI cardNode = null;
-
-            if (_cardNodes.ContainsKey(code) && code != "X")
-            {
-                cardNode = _cardNodes[code];
-                if (cardNode.GetParent() != anchor)
-                {
-                    cardNode.Reparent(anchor);
-                }
-            }
-            else if (code == "X")
-            {
-                var existingX = FindAvailableXNode(anchor, xCount);
-                xCount++;
-                if (existingX != null)
-                {
-                    cardNode = existingX;
-                }
-                else
-                {
-                    cardNode = CreateCard(code, anchor, _deckPos.GlobalPosition);
-                }
-            }
-            else
-            {
-                cardNode = CreateCard(code, anchor, _deckPos.GlobalPosition);
-                _cardNodes[code] = cardNode;
-            }
-
-            // Calculate card size and spacing dynamically
-            float cardWidth = Mathf.Min(95, anchorSize.X / (codes.Length + 1));
-            float cardHeight = cardNode.CustomMinimumSize.Y;
-            float totalWidth = codes.Length * cardWidth;
-            float startX = anchorCenter.X - totalWidth / 2.0f + cardWidth / 2.0f;
-            float yPos = anchorCenter.Y - cardHeight / 2.0f;
-            Vector2 targetPos = new Vector2(startX + i * cardWidth, yPos);
-
-            if (cardNode.Position.DistanceTo(targetPos) > 5.0f)
-            {
-                cardNode.AnimateMove(anchor.GlobalPosition + targetPos, i * 0.05f);
-            }
+            CardUI card = GetOrCreateCard(code, area, ref hiddenCount);
+            
+            Vector2 targetPos = CalculateCardPosition(i, codes.Length, center);
+            AnimateCardToPosition(card, area.GlobalPosition + targetPos, i * AnimCardStagger);
         }
     }
-
-    private CardUI FindAvailableXNode(Control anchor, int index)
+    
+    private CardUI GetOrCreateCard(string code, Control area, ref int hiddenCount)
     {
-        var xs = new List<CardUI>();
-        foreach (var c in anchor.GetChildren())
+        // Known card already tracked
+        if (code != "X" && _cardRegistry.TryGetValue(code, out var existing))
         {
-            if (c is CardUI card && card.CardData.ToString() == "X")
+            if (existing.GetParent() != area)
+                existing.Reparent(area);
+            return existing;
+        }
+        
+        // Hidden card (opponent's)
+        if (code == "X")
+        {
+            var hidden = FindHiddenCard(area, hiddenCount++);
+            if (hidden != null) return hidden;
+        }
+        
+        // Create new card
+        var card = SpawnCard(code, area);
+        if (code != "X") _cardRegistry[code] = card;
+        return card;
+    }
+    
+    private CardUI FindHiddenCard(Control area, int index)
+    {
+        int found = 0;
+        foreach (var child in area.GetChildren())
+        {
+            if (child is CardUI card && card.CardData?.ToString() == "X")
             {
-                xs.Add(card);
+                if (found == index) return card;
+                found++;
             }
         }
-        if (index < xs.Count) return xs[index];
         return null;
     }
-
-    private void CleanupAnchor(Control anchor, string[] validCodes)
+    
+    private Vector2 CalculateCardPosition(int index, int total, Vector2 center)
     {
-        int validXCount = validCodes.Count(c => c == "X");
-        int currentXCount = 0;
-
-        foreach (var child in anchor.GetChildren())
+        float spacing = Mathf.Min(CardWidth, center.X * 2 / (total + 1));
+        float totalWidth = (total - 1) * spacing + CardWidth;
+        float startX = center.X - totalWidth / 2;
+        float y = center.Y - CardHeight / 2;
+        
+        return new Vector2(startX + index * spacing, y);
+    }
+    
+    private void CleanupArea(Control area, string[] validCodes)
+    {
+        int validHidden = validCodes.Count(c => c == "X");
+        int hiddenSeen = 0;
+        
+        foreach (var child in area.GetChildren())
         {
-            if (child is CardUI card)
+            if (child is not CardUI card || !IsInstanceValid(card.CardData)) continue;
+            
+            string code = card.CardData.ToString();
+            
+            if (code == "X")
             {
-                if (!IsInstanceValid(card.CardData)) continue;
-                string code = card.CardData.ToString();
-
-                if (code == "X")
-                {
-                    currentXCount++;
-                    if (currentXCount > validXCount)
-                    {
-                        card.QueueFree();
-                    }
-                }
-                else if (!validCodes.Contains(code))
-                {
-                    _cardNodes.Remove(code);
+                if (++hiddenSeen > validHidden)
                     card.QueueFree();
-                }
+            }
+            else if (!validCodes.Contains(code))
+            {
+                _cardRegistry.Remove(code);
+                card.QueueFree();
             }
         }
     }
+    
+    #endregion
 
-    private List<CardUI> GetCardsInAnchor(Control anchor)
+    #region Animations
+    
+    private async Task AnimateLastMove(string pgn, string moverId)
     {
-        var list = new List<CardUI>();
-        foreach (var c in anchor.GetChildren())
+        var parts = pgn.Split("x");
+        string playedCode = parts[0];
+        string[] capturedCodes = parts.Length > 1 ? parts[1].Split("+") : System.Array.Empty<string>();
+        
+        // Get the played card
+        CardUI playedCard = GetPlayedCard(playedCode, moverId);
+        if (playedCard == null) return;
+        
+        if (capturedCodes.Length == 0)
         {
-            if (c is CardUI card) list.Add(card);
+            await AnimateThrow(playedCard);
         }
-        return list;
+        else
+        {
+            await AnimateCapture(playedCard, capturedCodes, moverId == PlayerId);
+        }
     }
-
-    private void OnStartButtonPressed()
+    
+    private CardUI GetPlayedCard(string code, string moverId)
     {
-        _networkManager.StartGame();
-        _menuPanel.Hide();
-        _waitingLabel.Visible = true;
+        if (moverId == PlayerId)
+        {
+            return _cardRegistry.GetValueOrDefault(code);
+        }
+        
+        // Opponent's card - pick one from their hand and reveal it
+        var oppCards = GetCardsIn(_opponentHand);
+        if (oppCards.Count == 0) return null;
+        
+        var card = oppCards[(int)(GD.Randi() % oppCards.Count)];
+        card.Setup(new CardData(code));
+        card.ShowCardFront();
+        _cardRegistry[code] = card;
+        
+        return card;
     }
-
-    private CardUI CreateCard(string cardCode, Node parent, Vector2 startPos)
+    
+    private async Task AnimateThrow(CardUI card)
     {
-        var cardData = new CardData(cardCode);
-        var cardNode = _cardScene.Instantiate<CardUI>();
-        parent.AddChild(cardNode);
-        cardNode.GlobalPosition = startPos;
-        cardNode.Setup(cardData);
-        cardNode.CardUiClicked += OnCardClicked;
-        return cardNode;
+        var tableCards = GetCardsIn(_table);
+        var center = _table.Size / 2;
+        int newTotal = tableCards.Count + 1;
+        
+        Vector2 targetPos = CalculateCardPosition(tableCards.Count, newTotal, center);
+        
+        var tween = CreateTween();
+        tween.TweenProperty(card, "global_position", _table.GlobalPosition + targetPos, AnimPlayCard)
+            .SetTrans(Tween.TransitionType.Quad)
+            .SetEase(Tween.EaseType.Out);
+        
+        await ToSignal(tween, Tween.SignalName.Finished);
     }
+    
+    private async Task AnimateCapture(CardUI playedCard, string[] capturedCodes, bool isPlayer)
+    {
+        // Gather captured card nodes
+        var captured = capturedCodes
+            .Where(c => _cardRegistry.ContainsKey(c))
+            .Select(c => _cardRegistry[c])
+            .ToList();
+        
+        // Quick swoop: played card visits each captured card
+        var swoopTween = CreateTween();
+        foreach (var target in captured)
+        {
+            swoopTween.TweenProperty(playedCard, "global_position", target.GlobalPosition, AnimCollectCards)
+                .SetTrans(Tween.TransitionType.Quad)
+                .SetEase(Tween.EaseType.Out);
+        }
+        await ToSignal(swoopTween, Tween.SignalName.Finished);
+        
+        // All cards fly to capture pile
+        var pile = isPlayer ? _playerCapturePile : _opponentCapturePile;
+        var captureList = isPlayer ? _playerCaptured : _opponentCaptured;
+        var pileCenter = new Vector2(
+            pile.Size.X / 2 - CardWidth / 2,
+            pile.Size.Y / 2 - CardHeight / 2
+        );
+        
+        var allCards = new List<CardUI> { playedCard };
+        allCards.AddRange(captured);
+        
+        var flyTween = CreateTween().SetParallel(true);
+        foreach (var card in allCards)
+        {
+            card.Reparent(pile);
+            card.ShowCardBack();
+            
+            flyTween.TweenProperty(card, "position", pileCenter, AnimCollectCards)
+                .SetTrans(Tween.TransitionType.Back)
+                .SetEase(Tween.EaseType.Out);
+        }
+        
+        await ToSignal(flyTween, Tween.SignalName.Finished);
+        captureList.AddRange(allCards);
+    }
+    
+    private void AnimateCardToPosition(CardUI card, Vector2 globalTarget, float delay)
+    {
+        if (card.GlobalPosition.DistanceTo(globalTarget) < 5f) return;
+        
+        var tween = CreateTween();
+        if (delay > 0) tween.TweenInterval(delay);
+        
+        tween.TweenProperty(card, "global_position", globalTarget, AnimDealCard)
+            .SetTrans(Tween.TransitionType.Quad)
+            .SetEase(Tween.EaseType.Out);
+    }
+    
+    #endregion
+
+    #region UI Updates
+    
+    private void UpdateTurnDisplay()
+    {
+        _turnIndicator.Show();
+        
+        if (_isPlayerTurn)
+        {
+            _turnLabel.Text = "YOUR TURN";
+            _turnLabel.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f));
+        }
+        else
+        {
+            _turnLabel.Text = "OPPONENT'S TURN";
+            _turnLabel.AddThemeColorOverride("font_color", new Color(1f, 0.7f, 0.5f));
+        }
+    }
+    
+    private void UpdateDeckDisplay(int count)
+    {
+        _deckCountLabel.Text = count.ToString();
+        
+        int visible = Mathf.Min(DeckVisualStackSize, Mathf.CeilToInt(count / 6f));
+        for (int i = 0; i < _deckVisuals.Count; i++)
+            _deckVisuals[i].Visible = i < visible && count > 0;
+    }
+    
+    #endregion
+
+    #region Helpers
+    
+    private string OpponentId => PlayerId == "p1" ? "p2" : "p1";
+    
+    private List<CardUI> GetCardsIn(Control area)
+    {
+        return area.GetChildren()
+            .OfType<CardUI>()
+            .Where(c => !c.IsQueuedForDeletion())
+            .ToList();
+    }
+    
+    private CardUI SpawnCard(string code, Node parent)
+    {
+        var card = _cardScene.Instantiate<CardUI>();
+        parent.AddChild(card);
+        card.GlobalPosition = _deckPosition.GlobalPosition;
+        card.Setup(new CardData(code));
+        card.CardUiClicked += OnCardClicked;
+        return card;
+    }
+    
+    private List<CardUI> FindCardsValidForSum(int target, List<CardUI> pool)
+    {
+        return pool.Where(card =>
+        {
+            if (card.CardData.Rank > target) return false;
+            if (card.CardData.Rank == target) return true;
+            
+            var remaining = pool.Where(c => c != card).ToList();
+            return CanSumTo(target - card.CardData.Rank, remaining);
+        }).ToList();
+    }
+    
+    private bool CanSumTo(int target, List<CardUI> pool)
+    {
+        if (target == 0) return true;
+        if (target < 0 || pool.Count == 0) return false;
+        
+        var first = pool[0];
+        var rest = pool.Skip(1).ToList();
+        
+        return CanSumTo(target - first.CardData.Rank, rest) || CanSumTo(target, rest);
+    }
+    
+    private static string GetString(Godot.Collections.Dictionary dict, string key)
+    {
+        return dict.ContainsKey(key) && dict[key].VariantType != Variant.Type.Nil
+            ? dict[key].AsString()
+            : "";
+    }
+    
+    private static string[] GetStringArray(Godot.Collections.Dictionary dict, string key)
+    {
+        return dict.ContainsKey(key) ? dict[key].AsStringArray() : System.Array.Empty<string>();
+    }
+    
+    #endregion
 }

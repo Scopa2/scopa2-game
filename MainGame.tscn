@@ -201,7 +201,7 @@ horizontal_alignment = 1
 vertical_alignment = 1
 
 [node name="DeckVisualContainer" type="Control" parent="GameArea/DeckArea/VBoxContainer"]
-custom_minimum_size = Vector2(70, 100)
+custom_minimum_size = Vector2(95, 130)
 layout_mode = 2
 size_flags_horizontal = 4
 size_flags_vertical = 6
@@ -265,7 +265,7 @@ text = "OPPONENT"
 horizontal_alignment = 1
 
 [node name="OpponentCapturedAnchor" type="Control" parent="GameArea/OpponentCapturedArea/VBox"]
-custom_minimum_size = Vector2(50, 70)
+custom_minimum_size = Vector2(95, 127)
 layout_mode = 2
 size_flags_horizontal = 4
 size_flags_vertical = 6
@@ -317,7 +317,7 @@ text = "YOU"
 horizontal_alignment = 1
 
 [node name="PlayerCapturedAnchor" type="Control" parent="GameArea/PlayerCapturedArea/VBox"]
-custom_minimum_size = Vector2(50, 70)
+custom_minimum_size = Vector2(95, 127)
 layout_mode = 2
 size_flags_horizontal = 4
 size_flags_vertical = 6
