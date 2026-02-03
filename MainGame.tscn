@@ -1,68 +1,491 @@
 [gd_scene format=3 uid="uid://cfoie6wk0vxcj"]
 
 [ext_resource type="Script" uid="uid://btq74afgj8gv4" path="res://scripts/MainGame.cs" id="1_hy1an"]
+[ext_resource type="Texture2D" uid="uid://dg0eqxj7lymxn" path="res://assets/textures/deck/scopaback.png" id="2_deck"]
 
-[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_cbe0c"]
-bg_color = Color(0.101961, 0.2, 0.14902, 1)
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_table"]
+bg_color = Color(0.08, 0.18, 0.12, 1)
+border_width_left = 8
+border_width_top = 8
+border_width_right = 8
+border_width_bottom = 8
+border_color = Color(0.35, 0.22, 0.1, 1)
+corner_radius_top_left = 20
+corner_radius_top_right = 20
+corner_radius_bottom_right = 20
+corner_radius_bottom_left = 20
 
-[node name="MainGame" type="Node2D" unique_id=1582397960]
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_inner_table"]
+bg_color = Color(0.1, 0.28, 0.18, 1)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.06, 0.14, 0.08, 1)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_deck_area"]
+bg_color = Color(0.06, 0.12, 0.08, 0.8)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.25, 0.18, 0.08, 0.6)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_captured_area"]
+bg_color = Color(0.05, 0.1, 0.06, 0.6)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.2, 0.15, 0.05, 0.4)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_normal"]
+bg_color = Color(0.6, 0.35, 0.1, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.8, 0.5, 0.15, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(0, 0, 0, 0.3)
+shadow_size = 4
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_hover"]
+bg_color = Color(0.7, 0.42, 0.12, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.9, 0.6, 0.2, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+shadow_color = Color(0, 0, 0, 0.4)
+shadow_size = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_btn_pressed"]
+bg_color = Color(0.5, 0.28, 0.08, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.65, 0.4, 0.12, 1)
+corner_radius_top_left = 8
+corner_radius_top_right = 8
+corner_radius_bottom_right = 8
+corner_radius_bottom_left = 8
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_line_edit"]
+bg_color = Color(0.95, 0.92, 0.85, 1)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.4, 0.25, 0.1, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_panel_bg"]
+bg_color = Color(0.12, 0.1, 0.08, 0.95)
+border_width_left = 3
+border_width_top = 3
+border_width_right = 3
+border_width_bottom = 3
+border_color = Color(0.5, 0.35, 0.15, 0.8)
+corner_radius_top_left = 12
+corner_radius_top_right = 12
+corner_radius_bottom_right = 12
+corner_radius_bottom_left = 12
+shadow_color = Color(0, 0, 0, 0.5)
+shadow_size = 10
+
+[sub_resource type="StyleBoxFlat" id="StyleBoxFlat_turn_indicator"]
+bg_color = Color(0.15, 0.12, 0.08, 0.9)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.6, 0.45, 0.2, 0.7)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+
+[node name="MainGame" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
 script = ExtResource("1_hy1an")
 
-[node name="Background" type="Panel" parent="." unique_id=1796774253]
-offset_right = 1280.0
-offset_bottom = 720.0
-theme_override_styles/panel = SubResource("StyleBoxFlat_cbe0c")
-
-[node name="OpponentHandAnchor" type="Node2D" parent="." unique_id=60313372]
-position = Vector2(640, 80)
-
-[node name="TableAnchor" type="Node2D" parent="." unique_id=1035452226]
-position = Vector2(640, 360)
-
-[node name="MyHandAnchor" type="Node2D" parent="." unique_id=1134819000]
-position = Vector2(640, 620)
-
-[node name="DeckPosition" type="Node2D" parent="." unique_id=857274517]
-position = Vector2(120, 360)
-
-[node name="PlayerCapturedAnchor" type="Node2D" parent="." unique_id=2782676]
-position = Vector2(1160, 620)
-
-[node name="OpponentCapturedAnchor" type="Node2D" parent="." unique_id=1188692306]
-position = Vector2(1160, 80)
-
-[node name="UI" type="CanvasLayer" parent="." unique_id=1093162476]
-
-[node name="DeckCountLabel" type="Label" parent="UI" unique_id=690911107]
-anchors_preset = 7
-anchor_left = 0.5
-anchor_top = 1.0
-anchor_right = 0.5
+[node name="Background" type="Panel" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = -20.0
-offset_top = -48.0
-offset_right = 20.0
-offset_bottom = -25.0
 grow_horizontal = 2
-grow_vertical = 0
-text = "Deck: 40"
-horizontal_alignment = 1
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_table")
 
-[node name="StartButton" type="Button" parent="UI" unique_id=1160515525]
+[node name="InnerTable" type="Panel" parent="Background"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.02
+anchor_top = 0.02
+anchor_right = 0.98
+anchor_bottom = 0.98
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_inner_table")
+
+[node name="GameArea" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="DeckArea" type="Panel" parent="GameArea"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.02
+anchor_top = 0.28
+anchor_right = 0.13
+anchor_bottom = 0.72
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_deck_area")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="GameArea/DeckArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 8.0
+offset_top = 12.0
+offset_right = -8.0
+offset_bottom = -12.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="DeckLabel" type="Label" parent="GameArea/DeckArea/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.85, 0.7, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.5)
+theme_override_font_sizes/font_size = 13
+text = "DECK"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="DeckVisualContainer" type="Control" parent="GameArea/DeckArea/VBoxContainer"]
+custom_minimum_size = Vector2(70, 100)
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 6
+
+[node name="DeckPosition" type="Control" parent="GameArea/DeckArea/VBoxContainer/DeckVisualContainer"]
+layout_mode = 1
 anchors_preset = 8
 anchor_left = 0.5
 anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
-offset_left = -60.0
-offset_top = -20.0
-offset_right = 60.0
-offset_bottom = 20.0
 grow_horizontal = 2
 grow_vertical = 2
-text = "Start Game"
 
-[node name="WaitingLabel" type="Label" parent="UI" unique_id=1760315625]
+[node name="DeckCountLabel" type="Label" parent="GameArea/DeckArea/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.6, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.6)
+theme_override_font_sizes/font_size = 22
+text = "40"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="CardsLeftLabel" type="Label" parent="GameArea/DeckArea/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.65, 0.55, 1)
+theme_override_font_sizes/font_size = 10
+text = "cards left"
+horizontal_alignment = 1
+
+[node name="OpponentCapturedArea" type="Panel" parent="GameArea"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.87
+anchor_top = 0.05
+anchor_right = 0.98
+anchor_bottom = 0.38
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_captured_area")
+
+[node name="VBox" type="VBoxContainer" parent="GameArea/OpponentCapturedArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 6.0
+offset_top = 8.0
+offset_right = -6.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="Label" type="Label" parent="GameArea/OpponentCapturedArea/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.8, 0.6, 0.5, 0.9)
+theme_override_font_sizes/font_size = 10
+text = "OPPONENT"
+horizontal_alignment = 1
+
+[node name="OpponentCapturedAnchor" type="Control" parent="GameArea/OpponentCapturedArea/VBox"]
+custom_minimum_size = Vector2(50, 70)
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 6
+
+[node name="CapturedLabel" type="Label" parent="GameArea/OpponentCapturedArea/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.6, 0.5, 0.7)
+theme_override_font_sizes/font_size = 9
+text = "captured"
+horizontal_alignment = 1
+
+[node name="OpponentCaptureCount" type="Label" parent="GameArea/OpponentCapturedArea/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.75, 0.5, 1)
+theme_override_font_sizes/font_size = 18
+text = "0"
+horizontal_alignment = 1
+
+[node name="PlayerCapturedArea" type="Panel" parent="GameArea"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.87
+anchor_top = 0.62
+anchor_right = 0.98
+anchor_bottom = 0.95
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_captured_area")
+
+[node name="VBox" type="VBoxContainer" parent="GameArea/PlayerCapturedArea"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 6.0
+offset_top = 8.0
+offset_right = -6.0
+offset_bottom = -8.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 4
+alignment = 1
+
+[node name="Label" type="Label" parent="GameArea/PlayerCapturedArea/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.8, 0.6, 0.9)
+theme_override_font_sizes/font_size = 10
+text = "YOU"
+horizontal_alignment = 1
+
+[node name="PlayerCapturedAnchor" type="Control" parent="GameArea/PlayerCapturedArea/VBox"]
+custom_minimum_size = Vector2(50, 70)
+layout_mode = 2
+size_flags_horizontal = 4
+size_flags_vertical = 6
+
+[node name="CapturedLabel" type="Label" parent="GameArea/PlayerCapturedArea/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.7, 0.55, 0.7)
+theme_override_font_sizes/font_size = 9
+text = "captured"
+horizontal_alignment = 1
+
+[node name="PlayerCaptureCount" type="Label" parent="GameArea/PlayerCapturedArea/VBox"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 1, 0.6, 1)
+theme_override_font_sizes/font_size = 18
+text = "0"
+horizontal_alignment = 1
+
+[node name="OpponentHandAnchor" type="Control" parent="GameArea"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.15
+anchor_top = 0.06
+anchor_right = 0.85
+anchor_bottom = 0.24
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="TableAnchor" type="Control" parent="GameArea"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.15
+anchor_top = 0.36
+anchor_right = 0.85
+anchor_bottom = 0.64
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="MyHandAnchor" type="Control" parent="GameArea"]
+layout_mode = 1
+anchors_preset = -1
+anchor_left = 0.15
+anchor_top = 0.76
+anchor_right = 0.85
+anchor_bottom = 0.94
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="UI" type="CanvasLayer" parent="."]
+
+[node name="TurnIndicator" type="Panel" parent="UI"]
+visible = false
+anchors_preset = 5
+anchor_left = 0.5
+anchor_right = 0.5
+offset_left = -70.0
+offset_top = 12.0
+offset_right = 70.0
+offset_bottom = 44.0
+grow_horizontal = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_turn_indicator")
+
+[node name="TurnLabel" type="Label" parent="UI/TurnIndicator"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.6, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.5)
+theme_override_font_sizes/font_size = 14
+text = "YOUR TURN"
+horizontal_alignment = 1
+vertical_alignment = 1
+
+[node name="MenuPanel" type="Panel" parent="UI"]
+visible = true
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+offset_left = -170.0
+offset_top = -115.0
+offset_right = 170.0
+offset_bottom = 115.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_styles/panel = SubResource("StyleBoxFlat_panel_bg")
+
+[node name="VBoxContainer" type="VBoxContainer" parent="UI/MenuPanel"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 24.0
+offset_top = 20.0
+offset_right = -24.0
+offset_bottom = -20.0
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_constants/separation = 10
+alignment = 1
+
+[node name="Title" type="Label" parent="UI/MenuPanel/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.5, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.5)
+theme_override_font_sizes/font_size = 32
+text = "SCOPA"
+horizontal_alignment = 1
+
+[node name="Subtitle" type="Label" parent="UI/MenuPanel/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.75, 0.7, 0.55, 0.8)
+theme_override_font_sizes/font_size = 12
+text = "Italian Card Game"
+horizontal_alignment = 1
+
+[node name="HSeparator" type="HSeparator" parent="UI/MenuPanel/VBoxContainer"]
+layout_mode = 2
+theme_override_styles/separator = SubResource("StyleBoxFlat_captured_area")
+
+[node name="StartButton" type="Button" parent="UI/MenuPanel/VBoxContainer"]
+layout_mode = 2
+size_flags_horizontal = 4
+theme_override_colors/font_color = Color(1, 0.95, 0.85, 1)
+theme_override_colors/font_hover_color = Color(1, 1, 1, 1)
+theme_override_font_sizes/font_size = 15
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+text = "  Create New Game  "
+
+[node name="OrLabel" type="Label" parent="UI/MenuPanel/VBoxContainer"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.55, 0.45, 0.6)
+theme_override_font_sizes/font_size = 11
+text = "— or —"
+horizontal_alignment = 1
+
+[node name="JoinContainer" type="HBoxContainer" parent="UI/MenuPanel/VBoxContainer"]
+layout_mode = 2
+theme_override_constants/separation = 8
+alignment = 1
+
+[node name="JoinGameLineEdit" type="LineEdit" parent="UI/MenuPanel/VBoxContainer/JoinContainer"]
+custom_minimum_size = Vector2(160, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(0.2, 0.15, 0.1, 1)
+theme_override_colors/font_placeholder_color = Color(0.5, 0.45, 0.4, 0.6)
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_line_edit")
+placeholder_text = "Enter Game ID"
+alignment = 1
+
+[node name="JoinGameButton" type="Button" parent="UI/MenuPanel/VBoxContainer/JoinContainer"]
+custom_minimum_size = Vector2(60, 34)
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.95, 0.85, 1)
+theme_override_font_sizes/font_size = 13
+theme_override_styles/normal = SubResource("StyleBoxFlat_btn_normal")
+theme_override_styles/hover = SubResource("StyleBoxFlat_btn_hover")
+theme_override_styles/pressed = SubResource("StyleBoxFlat_btn_pressed")
+text = "Join"
+
+[node name="WaitingLabel" type="Label" parent="UI"]
 visible = false
 anchors_preset = 8
 anchor_left = 0.5
@@ -70,36 +493,14 @@ anchor_top = 0.5
 anchor_right = 0.5
 anchor_bottom = 0.5
 offset_left = -150.0
-offset_top = -11.0
+offset_top = -15.0
 offset_right = 150.0
-offset_bottom = 12.0
+offset_bottom = 15.0
 grow_horizontal = 2
 grow_vertical = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.6, 1)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.6)
+theme_override_font_sizes/font_size = 18
 text = "Waiting for opponent..."
 horizontal_alignment = 1
-autowrap_mode = 2
-
-; Added Join UI controls
-[node name="JoinGameLineEdit" type="LineEdit" parent="UI" unique_id=2000000001]
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = -160.0
-offset_top = 30.0
-offset_right = -20.0
-offset_bottom = 60.0
-placeholder_text = "Paste game ID"
-
-[node name="JoinGameButton" type="Button" parent="UI" unique_id=2000000002]
-anchors_preset = 8
-anchor_left = 0.5
-anchor_top = 0.5
-anchor_right = 0.5
-anchor_bottom = 0.5
-offset_left = 30.0
-offset_top = 30.0
-offset_right = 90.0
-offset_bottom = 60.0
-text = "Join Game"
+vertical_alignment = 1

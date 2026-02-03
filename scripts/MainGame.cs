@@ -6,23 +6,33 @@ using System.Threading.Tasks;
 
 namespace Scopa2Game.Scripts;
 
-public partial class MainGame : Node2D
+public partial class MainGame : Control
 {
-    private const string MyPlayerId = "p1";
+    private const string MyPlayerId = "p2";
+    private const string CardBackPath = "res://assets/textures/deck/scopaback.png";
     private PackedScene _cardScene;
 
-    // Nodes
-    private Node2D _opponentHandAnchor;
-    private Node2D _tableAnchor;
-    private Node2D _myHandAnchor;
-    private Node2D _deckPos;
-    private Node2D _playerCapturedAnchor;
-    private Node2D _opponentCapturedAnchor;
+    // Nodes - anchors are now Control nodes for responsive layout
+    private Control _opponentHandAnchor;
+    private Control _tableAnchor;
+    private Control _myHandAnchor;
+    private Control _deckPos;
+    private Control _playerCapturedAnchor;
+    private Control _opponentCapturedAnchor;
     private Label _deckCountLabel;
     private Button _startButton;
     private Label _waitingLabel;
     private LineEdit _joinGameLineEdit;
     private Button _joinGameButton;
+    private Panel _menuPanel;
+    private Panel _turnIndicator;
+    private Label _turnLabel;
+    private Label _playerCaptureCountLabel;
+    private Label _opponentCaptureCountLabel;
+    
+    // Deck visualization
+    private List<TextureRect> _deckVisualCards = new();
+    private const int MaxDeckVisualCards = 6;
 
     // State Management
     private Dictionary<string, CardUI> _cardNodes = new();
@@ -40,17 +50,28 @@ public partial class MainGame : Node2D
     {
         _cardScene = GD.Load<PackedScene>("res://card.tscn");
 
-        _opponentHandAnchor = GetNode<Node2D>("OpponentHandAnchor");
-        _tableAnchor = GetNode<Node2D>("TableAnchor");
-        _myHandAnchor = GetNode<Node2D>("MyHandAnchor");
-        _deckPos = GetNode<Node2D>("DeckPosition");
-        _playerCapturedAnchor = GetNode<Node2D>("PlayerCapturedAnchor");
-        _opponentCapturedAnchor = GetNode<Node2D>("OpponentCapturedAnchor");
-        _deckCountLabel = GetNode<Label>("UI/DeckCountLabel");
-        _startButton = GetNode<Button>("UI/StartButton");
+        // Get anchors from new structure
+        _opponentHandAnchor = GetNode<Control>("GameArea/OpponentHandAnchor");
+        _tableAnchor = GetNode<Control>("GameArea/TableAnchor");
+        _myHandAnchor = GetNode<Control>("GameArea/MyHandAnchor");
+        _deckPos = GetNode<Control>("GameArea/DeckArea/VBoxContainer/DeckVisualContainer/DeckPosition");
+        _playerCapturedAnchor = GetNode<Control>("GameArea/PlayerCapturedArea/VBox/PlayerCapturedAnchor");
+        _opponentCapturedAnchor = GetNode<Control>("GameArea/OpponentCapturedArea/VBox/OpponentCapturedAnchor");
+        
+        // UI Elements
+        _deckCountLabel = GetNode<Label>("GameArea/DeckArea/VBoxContainer/DeckCountLabel");
+        _startButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/StartButton");
         _waitingLabel = GetNode<Label>("UI/WaitingLabel");
-        _joinGameLineEdit = GetNode<LineEdit>("UI/JoinGameLineEdit");
-        _joinGameButton = GetNode<Button>("UI/JoinGameButton");
+        _joinGameLineEdit = GetNode<LineEdit>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameLineEdit");
+        _joinGameButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
+        _menuPanel = GetNode<Panel>("UI/MenuPanel");
+        _turnIndicator = GetNode<Panel>("UI/TurnIndicator");
+        _turnLabel = GetNode<Label>("UI/TurnIndicator/TurnLabel");
+        _playerCaptureCountLabel = GetNode<Label>("GameArea/PlayerCapturedArea/VBox/PlayerCaptureCount");
+        _opponentCaptureCountLabel = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/OpponentCaptureCount");
+
+        // Initialize deck visualization
+        InitializeDeckVisual();
 
         _networkManager = GetNodeOrNull<NetworkManager>("/root/NetworkManager");
         if (!IsInstanceValid(_networkManager))
@@ -62,6 +83,82 @@ public partial class MainGame : Node2D
         _networkManager.StateUpdated += OnServerStateUpdated;
         _startButton.Pressed += OnStartButtonPressed;
         _joinGameButton.Pressed += OnJoinButtonPressed;
+    }
+    
+    private void InitializeDeckVisual()
+    {
+        var deckTexture = GD.Load<Texture2D>(CardBackPath);
+        
+        for (int i = 0; i < MaxDeckVisualCards; i++)
+        {
+            var cardBack = new TextureRect
+            {
+                Texture = deckTexture,
+                CustomMinimumSize = new Vector2(60, 84),
+                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
+                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
+                Position = new Vector2(-30 + i * 1.5f, -42 + i * -2f),
+                Modulate = new Color(1, 1, 1, 1f - (i * 0.05f))
+            };
+            
+            // Add slight rotation for stacked effect
+            cardBack.Rotation = Mathf.DegToRad(-2 + i * 0.8f);
+            
+            _deckPos.AddChild(cardBack);
+            _deckVisualCards.Add(cardBack);
+        }
+        
+        UpdateDeckVisual(40);
+    }
+    
+    private void UpdateDeckVisual(int deckSize)
+    {
+        _deckCountLabel.Text = deckSize.ToString();
+        
+        // Show/hide deck cards based on remaining cards
+        int visibleCards = Mathf.Min(MaxDeckVisualCards, Mathf.CeilToInt(deckSize / 6.0f));
+        
+        for (int i = 0; i < _deckVisualCards.Count; i++)
+        {
+            _deckVisualCards[i].Visible = i < visibleCards && deckSize > 0;
+        }
+        
+        // Subtle pulse animation when deck is low
+        if (deckSize > 0 && deckSize <= 6)
+        {
+            foreach (var card in _deckVisualCards)
+            {
+                if (card.Visible)
+                {
+                    var tween = CreateTween();
+                    tween.SetLoops(2);
+                    tween.TweenProperty(card, "modulate", new Color(1.2f, 1.1f, 0.9f, 1), 0.3f);
+                    tween.TweenProperty(card, "modulate", new Color(1, 1, 1, 1), 0.3f);
+                }
+            }
+        }
+    }
+    
+    private void UpdateTurnIndicator()
+    {
+        _turnIndicator.Visible = true;
+        
+        if (_isMyTurn)
+        {
+            _turnLabel.Text = "YOUR TURN";
+            _turnLabel.AddThemeColorOverride("font_color", new Color(0.5f, 1f, 0.6f, 1f));
+        }
+        else
+        {
+            _turnLabel.Text = "OPPONENT'S TURN";
+            _turnLabel.AddThemeColorOverride("font_color", new Color(1f, 0.7f, 0.5f, 1f));
+        }
+    }
+    
+    private void UpdateCaptureCountLabels()
+    {
+        _playerCaptureCountLabel.Text = _playerCapturedNodes.Count.ToString();
+        _opponentCaptureCountLabel.Text = _opponentCapturedNodes.Count.ToString();
     }
 
     private void OnJoinButtonPressed()
@@ -75,10 +172,8 @@ public partial class MainGame : Node2D
         string gameId = _joinGameLineEdit.Text.Trim();
         GD.Print($"MainGame: Joining game {gameId}");
         _networkManager.JoinGame(gameId);
-        // Hide start/join UI to avoid confusion
-        _startButton.Hide();
-        _joinGameButton.Hide();
-        _joinGameLineEdit.Hide();
+        // Hide menu panel
+        _menuPanel.Hide();
         _waitingLabel.Visible = true;
     }
 
@@ -291,7 +386,10 @@ public partial class MainGame : Node2D
         var gameState = serverData["state"].As<Godot.Collections.Dictionary>();
 
         _isMyTurn = bool.Parse(gameState["isMyTurn"].ToString());
-        _waitingLabel.Visible = !_isMyTurn;
+        _waitingLabel.Visible = false;
+        _menuPanel.Visible = false;
+        
+        UpdateTurnIndicator();
 
         if (!_isMyTurn)
         {
@@ -372,10 +470,16 @@ public partial class MainGame : Node2D
             var handTween = CreateTween();
             var targetAnchor = _tableAnchor;
             var tableCards = GetTableCards();
-            float cardWidth = 95;
+            
+            // Calculate position relative to anchor center
+            Vector2 anchorSize = targetAnchor.Size;
+            Vector2 anchorCenter = anchorSize / 2;
+            float cardWidth = Mathf.Min(95, anchorSize.X / (tableCards.Count + 2));
             float totalWidth = (tableCards.Count + 1) * cardWidth;
-            float startX = -totalWidth / 2.0f + cardWidth / 2.0f;
-            Vector2 targetPos = new Vector2(startX + tableCards.Count * cardWidth, 0);
+            float startX = anchorCenter.X - totalWidth / 2.0f + cardWidth / 2.0f;
+            float cardHeight = playedCardNode.CustomMinimumSize.Y;
+            float yPos = anchorCenter.Y - cardHeight / 2.0f;
+            Vector2 targetPos = new Vector2(startX + tableCards.Count * cardWidth, yPos);
 
             handTween.TweenProperty(playedCardNode, "global_position", targetAnchor.GlobalPosition + targetPos, 0.4f)
                 .SetTrans(Tween.TransitionType.Cubic)
@@ -410,12 +514,18 @@ public partial class MainGame : Node2D
             var flyTween = CreateTween().SetParallel(true);
             var allMoving = new List<CardUI> { playedCardNode };
             allMoving.AddRange(capturedNodes);
+            
+            // Position cards in capture pile centered
+            Vector2 pileCenter = capturePile.Size / 2;
 
             for(int i=0; i < allMoving.Count; i++)
             {
                 var c = allMoving[i];
                 c.Reparent(capturePile);
-                flyTween.TweenProperty(c, "position", new Vector2(0, -2 * (capturePile.GetChildCount() + i)), 0.4f)
+                
+                // Stack cards with slight offset for visual depth
+                Vector2 stackPos = new Vector2(pileCenter.X - 30, pileCenter.Y - 40 - 2 * (capturePile.GetChildCount() + i));
+                flyTween.TweenProperty(c, "position", stackPos, 0.4f)
                     .SetTrans(Tween.TransitionType.Back)
                     .SetEase(Tween.EaseType.InOut);
             }
@@ -452,9 +562,12 @@ public partial class MainGame : Node2D
         SyncAnchorGroup(tableCodes, _tableAnchor);
         allStateCodes.AddRange(tableCodes);
 
-        // Deck
+        // Deck - update visual representation
         var deckArray = gameState.ContainsKey("deck") ? gameState["deck"].As<Godot.Collections.Array>() : new Godot.Collections.Array();
-        _deckCountLabel.Text = $"Deck: {deckArray.Count}";
+        UpdateDeckVisual(deckArray.Count);
+        
+        // Update capture counts
+        UpdateCaptureCountLabels();
 
         // Cleanup
         CleanupAnchor(_myHandAnchor, myHandCodes);
@@ -462,9 +575,12 @@ public partial class MainGame : Node2D
         CleanupAnchor(_tableAnchor, tableCodes);
     }
 
-    private void SyncAnchorGroup(string[] codes, Node2D anchor)
+    private void SyncAnchorGroup(string[] codes, Control anchor)
     {
         int xCount = 0;
+        Vector2 anchorSize = anchor.Size;
+        Vector2 anchorCenter = anchorSize / 2;
+        
         for (int i = 0; i < codes.Length; i++)
         {
             string code = codes[i];
@@ -497,10 +613,13 @@ public partial class MainGame : Node2D
                 _cardNodes[code] = cardNode;
             }
 
-            float cardWidth = 95;
+            // Calculate card size and spacing dynamically
+            float cardWidth = Mathf.Min(95, anchorSize.X / (codes.Length + 1));
+            float cardHeight = cardNode.CustomMinimumSize.Y;
             float totalWidth = codes.Length * cardWidth;
-            float startX = -totalWidth / 2.0f + cardWidth / 2.0f;
-            Vector2 targetPos = new Vector2(startX + i * cardWidth, 0);
+            float startX = anchorCenter.X - totalWidth / 2.0f + cardWidth / 2.0f;
+            float yPos = anchorCenter.Y - cardHeight / 2.0f;
+            Vector2 targetPos = new Vector2(startX + i * cardWidth, yPos);
 
             if (cardNode.Position.DistanceTo(targetPos) > 5.0f)
             {
@@ -509,7 +628,7 @@ public partial class MainGame : Node2D
         }
     }
 
-    private CardUI FindAvailableXNode(Node2D anchor, int index)
+    private CardUI FindAvailableXNode(Control anchor, int index)
     {
         var xs = new List<CardUI>();
         foreach (var c in anchor.GetChildren())
@@ -523,7 +642,7 @@ public partial class MainGame : Node2D
         return null;
     }
 
-    private void CleanupAnchor(Node2D anchor, string[] validCodes)
+    private void CleanupAnchor(Control anchor, string[] validCodes)
     {
         int validXCount = validCodes.Count(c => c == "X");
         int currentXCount = 0;
@@ -552,7 +671,7 @@ public partial class MainGame : Node2D
         }
     }
 
-    private List<CardUI> GetCardsInAnchor(Node2D anchor)
+    private List<CardUI> GetCardsInAnchor(Control anchor)
     {
         var list = new List<CardUI>();
         foreach (var c in anchor.GetChildren())
@@ -565,7 +684,8 @@ public partial class MainGame : Node2D
     private void OnStartButtonPressed()
     {
         _networkManager.StartGame();
-        _startButton.Hide();
+        _menuPanel.Hide();
+        _waitingLabel.Visible = true;
     }
 
     private CardUI CreateCard(string cardCode, Node parent, Vector2 startPos)

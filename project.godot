@@ -23,6 +23,14 @@ config/icon="res://icon.svg"
 
 NetworkManager="*uid://j3saca7uciq4"
 
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/resizable=true
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
 [dotnet]
 
 project/assembly_name="Scopa2"
