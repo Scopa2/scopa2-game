@@ -290,8 +290,7 @@ public partial class MainGame : Node2D
         if (!serverData.ContainsKey("state")) return;
         var gameState = serverData["state"].As<Godot.Collections.Dictionary>();
 
-        string currentPlayer = gameState.ContainsKey("currentTurnPlayer") ? gameState["currentTurnPlayer"].AsString() : "";
-        _isMyTurn = (currentPlayer == MyPlayerId);
+        _isMyTurn = bool.Parse(gameState["isMyTurn"].ToString());
         _waitingLabel.Visible = !_isMyTurn;
 
         if (!_isMyTurn)

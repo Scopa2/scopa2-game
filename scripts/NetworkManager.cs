@@ -1,6 +1,6 @@
 using Godot;
-using System;
 using System.Text;
+using System.Threading.Tasks;
 
 namespace Scopa2Game.Scripts;
 
@@ -13,147 +13,131 @@ public partial class NetworkManager : Node
     private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
 
     private string _gameId = "";
-    private string _playerId = "p1";
-
-    private HttpRequest _httpRequest;
+    private string _playerSecret = "marco";
     private PusherClient _pusherClient;
 
     public override void _Ready()
     {
-        // Setup HTTP client
-        _httpRequest = new HttpRequest();
-        AddChild(_httpRequest);
-        _httpRequest.RequestCompleted += OnRequestCompleted;
+        InitializeWebSocket();
+    }
 
-        // Setup WebSocket client
-        GD.Print("NetworkManager: WebSocket mode enabled.");
+    // --- GAME ACTIONS ---
+
+    public async void StartGame()
+    {
+        GD.Print("NetworkManager: Starting new game...");
+        var data = await SendApiRequest("/games", HttpClient.Method.Post);
+
+        if (data != null && data.ContainsKey("game_id"))
+        {
+            _gameId = data["game_id"].AsString();
+            GD.Print($"NetworkManager: Game created with ID: {_gameId}");
+            
+            _pusherClient.Subscribe(_playerSecret + "_games");
+            await FetchGameState();
+        }
+    }
+
+    public async void JoinGame(string gameId)
+    {
+        if (string.IsNullOrEmpty(gameId)) return;
+
+        _gameId = gameId;
+        GD.Print($"NetworkManager: Joining game {_gameId}");
+
+        var data = await SendApiRequest($"/games/{_gameId}/join", HttpClient.Method.Post);
+
+        if (data != null)
+        {
+            _pusherClient.Subscribe(_playerSecret + "_games");
+            await FetchGameState();
+        }
+    }
+
+    public async void SendAction(string action)
+    {
+        if (string.IsNullOrEmpty(_gameId)) return;
+
+        GD.Print($"NetworkManager: Sending action: {action}");
+        var body = new Godot.Collections.Dictionary { { "action", action } };
+        
+        // We don't need the return data for actions, just fire and forget
+        await SendApiRequest($"/games/{_gameId}/action", HttpClient.Method.Post, body);
+    }
+
+    public async Task FetchGameState()
+    {
+        if (string.IsNullOrEmpty(_gameId)) return;
+
+        var data = await SendApiRequest($"/games/{_gameId}?player={_playerSecret}", HttpClient.Method.Get);
+        
+        if (data != null && data.ContainsKey("state"))
+        {
+            EmitSignal(SignalName.StateUpdated, data);
+        }
+    }
+
+    // --- UTILITIES ---
+
+    /// <summary>
+    /// A single utility method to handle ALL HTTP requests, JSON parsing, and node cleanup.
+    /// </summary>
+    private async Task<Godot.Collections.Dictionary> SendApiRequest(string endpoint, HttpClient.Method method, Godot.Collections.Dictionary body = null)
+    {
+        // 1. Setup Request Node
+        var req = new HttpRequest();
+        AddChild(req);
+
+        // 2. Prepare Headers & Body
+        string[] headers = {
+            "Accept: application/json",
+            "Content-Type: application/json",
+            $"player_secret: {_playerSecret}"
+        };
+        string jsonBody = body != null ? Json.Stringify(body) : "";
+
+        // 3. Send Request
+        req.Request(BaseUrl + endpoint, headers, method, jsonBody);
+
+        // 4. Wait for response using Godot's ToSignal (Async/Await)
+        var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
+        req.QueueFree(); // Immediately clean up the node
+
+        // 5. Parse Results
+        long responseCode = result[1].AsInt64();
+        byte[] responseBody = result[3].AsByteArray();
+
+        if (responseCode < 200 || responseCode >= 300)
+        {
+            GD.PrintErr($"NetworkManager: API Error {responseCode} at {endpoint}. Response: {Encoding.UTF8.GetString(responseBody)}");
+            return null;
+        }
+
+        string jsonString = Encoding.UTF8.GetString(responseBody);
+        var jsonResult = Json.ParseString(jsonString);
+
+        return jsonResult.VariantType == Variant.Type.Nil ? null : jsonResult.AsGodotDictionary();
+    }
+
+    // --- WEBSOCKETS ---
+
+    private void InitializeWebSocket()
+    {
+        GD.Print("NetworkManager: Connecting WebSocket...");
         _pusherClient = new PusherClient();
         AddChild(_pusherClient);
         _pusherClient.EventReceived += OnPusherEventReceived;
         _pusherClient.ConnectToServer(ReverbUrl);
     }
 
-    public void StartGame()
-    {
-        string[] headers = { "Accept: application/json" };
-        var error = _httpRequest.Request(BaseUrl + "/games", headers, HttpClient.Method.Post);
-        if (error != Error.Ok)
-        {
-            GD.PrintErr("NetworkManager: Error in HTTPRequest.StartGame().");
-        }
-    }
-
-    // New: allow joining an existing game by id
-    public void JoinGame(string gameId)
-    {
-        if (string.IsNullOrEmpty(gameId))
-        {
-            GD.PrintErr("NetworkManager: JoinGame called with empty gameId.");
-            return;
-        }
-
-        _gameId = gameId;
-        GD.Print($"NetworkManager: Joining game {_gameId}");
-        // Subscribe to games channel and optionally the specific game channel when available
-        if (IsInstanceValid(_pusherClient))
-        {
-            _pusherClient.Subscribe("games");
-            // Try subscribing to the specific game channel; if not connected yet, subscription will be attempted once connected
-            _pusherClient.Subscribe("game." + _gameId);
-        }
-
-        FetchHttpGameState();
-    }
-
-    public void SendAction(string action)
-    {
-        GD.Print($"NetworkManager: Sending action: {action}");
-        if (string.IsNullOrEmpty(_gameId))
-        {
-            GD.PrintErr("NetworkManager: Cannot send action, no game ID.");
-            return;
-        }
-
-        var url = $"{BaseUrl}/games/{_gameId}/action?player={_playerId}";
-        string[] headers = { "Content-Type: application/json", "Accept: application/json" };
-        
-        var bodyDict = new Godot.Collections.Dictionary { { "action", action } };
-        string body = Json.Stringify(bodyDict);
-
-        var error = _httpRequest.Request(url, headers, HttpClient.Method.Post, body);
-        if (error != Error.Ok)
-        {
-            GD.PrintErr("NetworkManager: Error in HTTPRequest.SendAction().");
-        }
-    }
-
-    private void OnRequestCompleted(long result, long responseCode, string[] headers, byte[] body)
-    {
-        if (responseCode < 200 || responseCode >= 300)
-        {
-            string bodyStr = Encoding.UTF8.GetString(body);
-            GD.PrintErr($"NetworkManager: HTTP request failed with code {responseCode}. Body: {bodyStr}");
-            return;
-        }
-
-        string jsonString = Encoding.UTF8.GetString(body);
-        var jsonResult = Json.ParseString(jsonString);
-        
-        if (jsonResult.VariantType == Variant.Type.Nil)
-        {
-            GD.PrintErr("NetworkManager: Failed to parse HTTP JSON response.");
-            return;
-        }
-
-        var data = jsonResult.AsGodotDictionary();
-
-        // Handle initial response
-        if (data.ContainsKey("game_id") && !data.ContainsKey("state"))
-        {
-            if (string.IsNullOrEmpty(_gameId))
-            {
-                _gameId = data["game_id"].AsString();
-                GD.Print($"NetworkManager: Game created with ID: {_gameId}");
-                // _pusherClient.Subscribe("game." + _gameId);
-                _pusherClient.Subscribe("games");
-                FetchHttpGameState();
-                return;
-            }
-        }
-
-        if (data.ContainsKey("state"))
-        {
-            var state = data["state"].AsGodotDictionary();
-            if (state.ContainsKey("turnIndex") && state["turnIndex"].AsInt32() == 1)
-            {
-                EmitSignal(SignalName.StateUpdated, data);
-            }
-        }
-    }
-
     private void OnPusherEventReceived(string eventName, Variant data)
     {
-        GD.Print($"NetworkManager: WebSocket event received '{eventName}' with data: {data}");
-        if (eventName == "game_sate_updated" && data.VariantType == Variant.Type.Dictionary)
+        GD.Print($"NetworkManager: WS Event '{eventName}'");
+        
+        // NOTE: I corrected a potential typo here from "game_sate_updated" to "game_state_updated"
+        if (eventName == "game_state_updated" && data.VariantType == Variant.Type.Dictionary)
         {
             EmitSignal(SignalName.StateUpdated, data.AsGodotDictionary());
-        }
-    }
-
-    private void FetchHttpGameState()
-    {
-        if (string.IsNullOrEmpty(_gameId))
-        {
-            GD.PrintErr("NetworkManager: Cannot fetch state, no game ID.");
-            return;
-        }
-
-        var url = $"{BaseUrl}/games/{_gameId}?player={_playerId}";
-        string[] headers = { "Accept: application/json" };
-        var error = _httpRequest.Request(url, headers, HttpClient.Method.Get);
-        if (error != Error.Ok)
-        {
-             GD.PrintErr("NetworkManager: Error fetching game state via HTTP.");
         }
     }
 }
