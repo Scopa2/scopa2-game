@@ -15,7 +15,7 @@ public partial class CardData : RefCounted
     public CardData(string serverCode)
     {
         // Handle special "BACK" code for face-down cards gracefully.
-        if (string.IsNullOrEmpty(serverCode) || serverCode == "BACK")
+        if (string.IsNullOrEmpty(serverCode) || serverCode == "X")
         {
             Rank = -1;
             Suit = "X"; // Invalid suit

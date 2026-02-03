@@ -1,3 +1,4 @@
+using System;
 using Godot;
 using Scopa2Game.Scripts.Models;
 using System.Collections.Generic;
@@ -121,7 +122,7 @@ public partial class CardUI : TextureButton
         Visible = true;
         Modulate = new Color(0.9f, 0.9f, 0.9f);
 
-        if (CardData.ToString() == "X")
+        if (CardData.Suit == "X")
         {
             ShowCardBack();
         }

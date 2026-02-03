@@ -303,13 +303,23 @@ public partial class MainGame : Node2D
         
         if (!string.IsNullOrEmpty(pgn))
         {
-            string moverId = _isMyTurn ? "p2" : "p1";
+            string moverId =   _isMyTurn ? _getOpponentId() : _getMyPlayerId();
             await AnimateMove(pgn, moverId);
             GD.Print("Animation of last move complete.");
         }
 
         GD.Print("Reconciling state...");
         ReconcileState(gameState);
+    }
+    
+    private string _getOpponentId()
+    {
+        return MyPlayerId == "p1" ? "p2" : "p1";
+    }
+    
+    private string _getMyPlayerId()
+    {
+        return MyPlayerId;
     }
 
     private async Task AnimateMove(string pgn, string moverId)
@@ -431,7 +441,7 @@ public partial class MainGame : Node2D
         allStateCodes.AddRange(myHandCodes);
 
         // Opponent Hand
-        string opponentId = MyPlayerId == "p1" ? "p2" : "p1";
+        string opponentId = _getOpponentId();
         var oppPlayer = players.ContainsKey(opponentId) ? players[opponentId].As<Godot.Collections.Dictionary>() : new Godot.Collections.Dictionary();
         var oppHandCodes = oppPlayer.ContainsKey("hand") ? oppPlayer["hand"].AsStringArray() : System.Array.Empty<string>();
         SyncAnchorGroup(oppHandCodes, _opponentHandAnchor);

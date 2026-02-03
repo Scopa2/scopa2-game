@@ -69,7 +69,7 @@ public partial class NetworkManager : Node
     {
         if (string.IsNullOrEmpty(_gameId)) return;
 
-        var data = await SendApiRequest($"/games/{_gameId}?player={_playerSecret}", HttpClient.Method.Get);
+        var data = await SendApiRequest($"/games/{_gameId}", HttpClient.Method.Get);
         
         if (data != null && data.ContainsKey("state"))
         {
