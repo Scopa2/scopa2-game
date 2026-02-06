@@ -18,7 +18,6 @@ public partial class MainGame : Control
     private const string CardBackTexturePath = "res://assets/textures/deck/scopaback.png";
     private const float CardWidth = 95f;
     private const float CardHeight = 127f;
-    private const int DeckVisualStackSize = 6;
     
     // Animation durations (in seconds) - keeping them snappy
     private const float AnimDealCard = 0.25f;
@@ -57,9 +56,6 @@ public partial class MainGame : Control
     private Button _joinButton;
     private LineEdit _gameIdInput;
     
-    // Deck visual stack
-    private readonly List<TextureRect> _deckVisuals = new();
-    
     #endregion
 
     #region Game State
@@ -79,7 +75,6 @@ public partial class MainGame : Control
     public override void _Ready()
     {
         CacheNodeReferences();
-        CreateDeckVisuals();
         ConnectSignals();
     }
     
@@ -111,30 +106,6 @@ public partial class MainGame : Control
         _startButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/StartButton");
         _joinButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
         _gameIdInput = GetNode<LineEdit>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameLineEdit");
-    }
-    
-    private void CreateDeckVisuals()
-    {
-        var texture = GD.Load<Texture2D>(CardBackTexturePath);
-        
-        for (int i = 0; i < DeckVisualStackSize; i++)
-        {
-            var card = new TextureRect
-            {
-                Texture = texture,
-                CustomMinimumSize = new Vector2(CardWidth, CardHeight),
-                ExpandMode = TextureRect.ExpandModeEnum.IgnoreSize,
-                StretchMode = TextureRect.StretchModeEnum.KeepAspectCentered,
-                Position = new Vector2(-CardWidth / 2 + i * 1.5f, -CardHeight / 2 - i * 2f),
-                Rotation = Mathf.DegToRad(-2 + i * 0.8f),
-                Modulate = new Color(1, 1, 1, 1f - i * 0.05f)
-            };
-            
-            _deckPosition.AddChild(card);
-            _deckVisuals.Add(card);
-        }
-        
-        UpdateDeckDisplay(40);
     }
     
     private void ConnectSignals()
@@ -345,16 +316,17 @@ public partial class MainGame : Control
         string[] tableCards = GetStringArray(state, "table");
         string[] myCaptured = GetStringArray(myData, "captured");
         string[] oppCaptured = GetStringArray(oppData, "captured");
+        string[] deckCards = GetStringArray(state, "deck");
          
         SyncCardGroup(myHand, _playerHand);
         SyncCardGroup(oppHand, _opponentHand);
         SyncCardGroup(tableCards, _table);
         SyncCardGroup(myCaptured, _playerCapturePile);
         SyncCardGroup(oppCaptured, _opponentCapturePile);
+        SyncCardGroup(deckCards, _deckPosition);
         
-        // Update deck display
-        var deck = state.ContainsKey("deck") ? state["deck"].As<Godot.Collections.Array>() : new();
-        UpdateDeckDisplay(deck.Count);
+        // Update deck count display
+        _deckCountLabel.Text = deckCards.Length.ToString();
         
         // Update capture counts
         _playerCaptureCount.Text = myCaptured.Length.ToString();
@@ -378,6 +350,7 @@ public partial class MainGame : Control
         CleanupArea(_table, tableCards);
         CleanupArea(_playerCapturePile, myCaptured);
         CleanupArea(_opponentCapturePile, oppCaptured);
+        CleanupArea(_deckPosition, deckCards);
     }
     
     private void SyncCardGroup(string[] codes, Control area)
@@ -385,31 +358,26 @@ public partial class MainGame : Control
         var center = area.Size / 2;
         int hiddenCount = 0;
         
-        // Check if this is a capture pile (cards stack in center, don't spread)
-        bool isCapturePile = area == _playerCapturePile || area == _opponentCapturePile;
+        // Check if this is a pile area (cards stack in center, don't spread)
+        bool isPileArea = area == _playerCapturePile || area == _opponentCapturePile || area == _deckPosition;
         
         for (int i = 0; i < codes.Length; i++)
         {
             string code = codes[i];
             CardUI card = GetOrCreateCard(code, area, ref hiddenCount);
             
-            if (isCapturePile)
+            if (isPileArea)
             {
-                // For capture piles, just ensure cards are in the pile without animating
-                // (animation already happened during capture)
+                // For pile areas (captured cards and deck), stack cards with visual effect
                 if (card.GetParent() != area)
                     card.Reparent(area);
                 
-                Vector2 pileCenter = new Vector2(
-                    center.X - CardWidth / 2,
-                    center.Y - CardHeight / 2
-                );
-                card.Position = pileCenter;
+                ApplyPileStackEffect(card, i, center);
             }
             else
             {
                 // For hands and table, animate to spread positions
-                // Reset any stacking effects from capture piles
+                // Reset any stacking effects from pile areas
                 card.Rotation = 0f;
                 card.Modulate = Colors.White;
                 card.ZIndex = 0;
@@ -418,6 +386,26 @@ public partial class MainGame : Control
                 AnimateCardToPosition(card, area.GlobalPosition + targetPos, i * AnimCardStagger);
             }
         }
+    }
+    
+    private void ApplyPileStackEffect(CardUI card, int stackIndex, Vector2 center)
+    {
+        // Calculate stack position with slight offset for visual depth
+        Vector2 stackPos = new Vector2(
+            center.X - CardWidth / 2 + stackIndex * 1.5f,
+            center.Y - CardHeight / 2 - stackIndex * 2f
+        );
+        
+        // Apply rotation for visual variety
+        float rotation = Mathf.DegToRad(-2 + stackIndex * 0.8f);
+        
+        // Fade older cards slightly
+        float opacity = Mathf.Max(0.7f, 1f - stackIndex * 0.05f);
+        
+        card.Position = stackPos;
+        card.Rotation = rotation;
+        card.Modulate = new Color(1, 1, 1, opacity);
+        card.ZIndex = stackIndex;
     }
     
     private CardUI GetOrCreateCard(string code, Control area, ref int hiddenCount)
@@ -646,15 +634,6 @@ public partial class MainGame : Control
             _turnLabel.Text = "OPPONENT'S TURN";
             _turnLabel.AddThemeColorOverride("font_color", new Color(1f, 0.7f, 0.5f));
         }
-    }
-    
-    private void UpdateDeckDisplay(int count)
-    {
-        _deckCountLabel.Text = count.ToString();
-        
-        int visible = Mathf.Min(DeckVisualStackSize, Mathf.CeilToInt(count / 6f));
-        for (int i = 0; i < _deckVisuals.Count; i++)
-            _deckVisuals[i].Visible = i < visible && count > 0;
     }
     
     #endregion
