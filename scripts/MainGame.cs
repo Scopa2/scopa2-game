@@ -23,8 +23,8 @@ public partial class MainGame : Control
     // Animation durations (in seconds) - keeping them snappy
     private const float AnimDealCard = 0.25f;
     private const float AnimPlayCard = 0.2f;
-    private const float AnimCollectCards = 0.18f;
-    private const float AnimCardStagger = 0.03f;
+    private const float AnimCollectCards = 0.25f;
+    private const float AnimCardStagger = 0.1f;
     
     #endregion
 
@@ -48,6 +48,10 @@ public partial class MainGame : Control
     private Label _deckCountLabel;
     private Label _playerCaptureCount;
     private Label _opponentCaptureCount;
+    private Label _playerScopeCount;
+    private Label _opponentScopeCount;
+    private Label _playerScoreLabel;
+    private Label _opponentScoreLabel;
     private Label _waitingLabel;
     private Button _startButton;
     private Button _joinButton;
@@ -61,8 +65,6 @@ public partial class MainGame : Control
     #region Game State
     
     private readonly Dictionary<string, CardUI> _cardRegistry = new();
-    private readonly List<CardUI> _playerCaptured = new();
-    private readonly List<CardUI> _opponentCaptured = new();
     
     private PlayerIndex _playerIndex;
     private PlayerIndex _opponentIndex;
@@ -99,8 +101,12 @@ public partial class MainGame : Control
         _turnIndicator = GetNode<Panel>("UI/TurnIndicator");
         _turnLabel = GetNode<Label>("UI/TurnIndicator/TurnLabel");
         _deckCountLabel = GetNode<Label>("GameArea/DeckArea/VBoxContainer/DeckCountLabel");
-        _playerCaptureCount = GetNode<Label>("GameArea/PlayerCapturedArea/VBox/PlayerCaptureCount");
-        _opponentCaptureCount = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/OpponentCaptureCount");
+        _playerCaptureCount = GetNode<Label>("GameArea/PlayerCapturedArea/VBox/StatsCountsRow/PlayerCaptureCount");
+        _opponentCaptureCount = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/StatsCountsRow/OpponentCaptureCount");
+        _playerScopeCount = GetNode<Label>("GameArea/PlayerCapturedArea/VBox/StatsCountsRow/PlayerScopeCount");
+        _opponentScopeCount = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/StatsCountsRow/OpponentScopeCount");
+        _playerScoreLabel = GetNode<Label>("GameArea/PlayerCapturedArea/VBox/ScoreRow/PlayerScoreLabel");
+        _opponentScoreLabel = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/ScoreRow/OpponentScoreLabel");
         _waitingLabel = GetNode<Label>("UI/WaitingLabel");
         _startButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/StartButton");
         _joinButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
@@ -337,23 +343,41 @@ public partial class MainGame : Control
         string[] myHand = GetStringArray(myData, "hand");
         string[] oppHand = GetStringArray(oppData, "hand");
         string[] tableCards = GetStringArray(state, "table");
-        
+        string[] myCaptured = GetStringArray(myData, "captured");
+        string[] oppCaptured = GetStringArray(oppData, "captured");
+         
         SyncCardGroup(myHand, _playerHand);
         SyncCardGroup(oppHand, _opponentHand);
         SyncCardGroup(tableCards, _table);
+        SyncCardGroup(myCaptured, _playerCapturePile);
+        SyncCardGroup(oppCaptured, _opponentCapturePile);
         
         // Update deck display
         var deck = state.ContainsKey("deck") ? state["deck"].As<Godot.Collections.Array>() : new();
         UpdateDeckDisplay(deck.Count);
         
         // Update capture counts
-        _playerCaptureCount.Text = _playerCaptured.Count.ToString();
-        _opponentCaptureCount.Text = _opponentCaptured.Count.ToString();
+        _playerCaptureCount.Text = myCaptured.Length.ToString();
+        _opponentCaptureCount.Text = oppCaptured.Length.ToString();
+        
+        // Update scope counts
+        int myScope = myData.ContainsKey("scope") ? (int)double.Parse(myData["scope"].ToString(), System.Globalization.CultureInfo.InvariantCulture) : 0;
+        int oppScope = oppData.ContainsKey("scope") ? (int)double.Parse(oppData["scope"].ToString(), System.Globalization.CultureInfo.InvariantCulture) : 0;
+        _playerScopeCount.Text = myScope.ToString();
+        _opponentScopeCount.Text = oppScope.ToString();
+        
+        // Update scores
+        int myScore = myData.ContainsKey("totalScore") ? (int)double.Parse(myData["totalScore"].ToString(), System.Globalization.CultureInfo.InvariantCulture) : 0;
+        int oppScore = oppData.ContainsKey("totalScore") ? (int)double.Parse(oppData["totalScore"].ToString(), System.Globalization.CultureInfo.InvariantCulture) : 0;
+        _playerScoreLabel.Text = myScore.ToString();
+        _opponentScoreLabel.Text = oppScore.ToString();
         
         // Clean up removed cards
         CleanupArea(_playerHand, myHand);
         CleanupArea(_opponentHand, oppHand);
         CleanupArea(_table, tableCards);
+        CleanupArea(_playerCapturePile, myCaptured);
+        CleanupArea(_opponentCapturePile, oppCaptured);
     }
     
     private void SyncCardGroup(string[] codes, Control area)
@@ -361,13 +385,38 @@ public partial class MainGame : Control
         var center = area.Size / 2;
         int hiddenCount = 0;
         
+        // Check if this is a capture pile (cards stack in center, don't spread)
+        bool isCapturePile = area == _playerCapturePile || area == _opponentCapturePile;
+        
         for (int i = 0; i < codes.Length; i++)
         {
             string code = codes[i];
             CardUI card = GetOrCreateCard(code, area, ref hiddenCount);
             
-            Vector2 targetPos = CalculateCardPosition(i, codes.Length, center);
-            AnimateCardToPosition(card, area.GlobalPosition + targetPos, i * AnimCardStagger);
+            if (isCapturePile)
+            {
+                // For capture piles, just ensure cards are in the pile without animating
+                // (animation already happened during capture)
+                if (card.GetParent() != area)
+                    card.Reparent(area);
+                
+                Vector2 pileCenter = new Vector2(
+                    center.X - CardWidth / 2,
+                    center.Y - CardHeight / 2
+                );
+                card.Position = pileCenter;
+            }
+            else
+            {
+                // For hands and table, animate to spread positions
+                // Reset any stacking effects from capture piles
+                card.Rotation = 0f;
+                card.Modulate = Colors.White;
+                card.ZIndex = 0;
+                
+                Vector2 targetPos = CalculateCardPosition(i, codes.Length, center);
+                AnimateCardToPosition(card, area.GlobalPosition + targetPos, i * AnimCardStagger);
+            }
         }
     }
     
@@ -509,40 +558,62 @@ public partial class MainGame : Control
             .Select(c => _cardRegistry[c])
             .ToList();
         
-        // Quick swoop: played card visits each captured card
-        var swoopTween = CreateTween();
+        // Put capturing card on top of all captured cards
+        playedCard.ZIndex = 100;
+        
+        // Swoop: played card visits each captured card with pause
         foreach (var target in captured)
         {
+            var swoopTween = CreateTween();
             swoopTween.TweenProperty(playedCard, "global_position", target.GlobalPosition, AnimCollectCards)
                 .SetTrans(Tween.TransitionType.Quad)
                 .SetEase(Tween.EaseType.Out);
+            await ToSignal(swoopTween, Tween.SignalName.Finished);
+            
+            // Small pause to highlight the captured card
+            await ToSignal(GetTree().CreateTimer(0.15f), SceneTreeTimer.SignalName.Timeout);
         }
-        await ToSignal(swoopTween, Tween.SignalName.Finished);
         
         // All cards fly to capture pile
         var pile = isPlayer ? _playerCapturePile : _opponentCapturePile;
-        var captureList = isPlayer ? _playerCaptured : _opponentCaptured;
-        var pileCenter = new Vector2(
-            pile.Size.X / 2 - CardWidth / 2,
-            pile.Size.Y / 2 - CardHeight / 2
-        );
+        var center = pile.Size / 2;
         
         var allCards = new List<CardUI> { playedCard };
         allCards.AddRange(captured);
         
+        // Get current pile size to determine stack index for new cards
+        int existingPileSize = GetCardsIn(pile).Count;
+        
         var flyTween = CreateTween().SetParallel(true);
-        foreach (var card in allCards)
+        for (int i = 0; i < allCards.Count; i++)
         {
+            var card = allCards[i];
             card.Reparent(pile);
             card.ShowCardBack();
             
-            flyTween.TweenProperty(card, "position", pileCenter, AnimCollectCards)
+            // Calculate stack position with twisted effect
+            int stackIndex = existingPileSize + i;
+            Vector2 stackPos = new Vector2(
+                center.X - CardWidth / 2 + stackIndex * 1.5f,
+                center.Y - CardHeight / 2 - stackIndex * 2f
+            );
+            float rotation = Mathf.DegToRad(-2 + stackIndex * 0.8f);
+            float opacity = Mathf.Max(0.7f, 1f - stackIndex * 0.05f);
+            
+            flyTween.TweenProperty(card, "position", stackPos, AnimCollectCards)
                 .SetTrans(Tween.TransitionType.Back)
                 .SetEase(Tween.EaseType.Out);
+            flyTween.TweenProperty(card, "rotation", rotation, AnimCollectCards)
+                .SetTrans(Tween.TransitionType.Back)
+                .SetEase(Tween.EaseType.Out);
+            flyTween.TweenProperty(card, "modulate", new Color(1, 1, 1, opacity), AnimCollectCards)
+                .SetTrans(Tween.TransitionType.Linear)
+                .SetEase(Tween.EaseType.Out);
+            
+            card.ZIndex = stackIndex;
         }
         
         await ToSignal(flyTween, Tween.SignalName.Finished);
-        captureList.AddRange(allCards);
     }
     
     private void AnimateCardToPosition(CardUI card, Vector2 globalTarget, float delay)

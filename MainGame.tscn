@@ -248,41 +248,84 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 6.0
-offset_top = 8.0
-offset_right = -6.0
-offset_bottom = -8.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 2
 alignment = 1
 
 [node name="Label" type="Label" parent="GameArea/OpponentCapturedArea/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.8, 0.6, 0.5, 0.9)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 text = "OPPONENT"
 horizontal_alignment = 1
 
+[node name="ScoreRow" type="HBoxContainer" parent="GameArea/OpponentCapturedArea/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+alignment = 1
+
+[node name="ScoreLabel" type="Label" parent="GameArea/OpponentCapturedArea/VBox/ScoreRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.9, 0.8, 0.5, 0.9)
+theme_override_font_sizes/font_size = 9
+text = "Points:"
+
+[node name="OpponentScoreLabel" type="Label" parent="GameArea/OpponentCapturedArea/VBox/ScoreRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(1, 0.9, 0.4, 1)
+theme_override_font_sizes/font_size = 16
+text = "0"
+
 [node name="OpponentCapturedAnchor" type="Control" parent="GameArea/OpponentCapturedArea/VBox"]
-custom_minimum_size = Vector2(95, 127)
+custom_minimum_size = Vector2(85, 100)
 layout_mode = 2
 size_flags_horizontal = 4
 size_flags_vertical = 6
 
-[node name="CapturedLabel" type="Label" parent="GameArea/OpponentCapturedArea/VBox"]
+[node name="StatsLabelsRow" type="HBoxContainer" parent="GameArea/OpponentCapturedArea/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="CapturedLabel" type="Label" parent="GameArea/OpponentCapturedArea/VBox/StatsLabelsRow"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.7, 0.6, 0.5, 0.7)
-theme_override_font_sizes/font_size = 9
-text = "captured"
-horizontal_alignment = 1
+theme_override_font_sizes/font_size = 8
+text = "Captured"
 
-[node name="OpponentCaptureCount" type="Label" parent="GameArea/OpponentCapturedArea/VBox"]
+[node name="ScopeLabel" type="Label" parent="GameArea/OpponentCapturedArea/VBox/StatsLabelsRow"]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.7, 0.6, 0.5, 0.7)
+theme_override_font_sizes/font_size = 8
+text = "Scope"
+
+[node name="StatsCountsRow" type="HBoxContainer" parent="GameArea/OpponentCapturedArea/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="OpponentCaptureCount" type="Label" parent="GameArea/OpponentCapturedArea/VBox/StatsCountsRow"]
+layout_mode = 2
+size_flags_horizontal = 6
 theme_override_colors/font_color = Color(1, 0.75, 0.5, 1)
-theme_override_font_sizes/font_size = 18
+theme_override_font_sizes/font_size = 14
 text = "0"
 horizontal_alignment = 1
+
+[node name="OpponentScopeCount" type="Label" parent="GameArea/OpponentCapturedArea/VBox/StatsCountsRow"]
+layout_mode = 2
+size_flags_horizontal = 6
+theme_override_colors/font_color = Color(1, 0.75, 0.5, 1)
+theme_override_font_sizes/font_size = 14
+text = "0"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 16
+text = "0"
 
 [node name="PlayerCapturedArea" type="Panel" parent="GameArea"]
 layout_mode = 1
@@ -300,41 +343,84 @@ layout_mode = 1
 anchors_preset = 15
 anchor_right = 1.0
 anchor_bottom = 1.0
-offset_left = 6.0
-offset_top = 8.0
-offset_right = -6.0
-offset_bottom = -8.0
+offset_left = 4.0
+offset_top = 4.0
+offset_right = -4.0
+offset_bottom = -4.0
 grow_horizontal = 2
 grow_vertical = 2
-theme_override_constants/separation = 4
+theme_override_constants/separation = 2
 alignment = 1
 
 [node name="Label" type="Label" parent="GameArea/PlayerCapturedArea/VBox"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.5, 0.8, 0.6, 0.9)
-theme_override_font_sizes/font_size = 10
+theme_override_font_sizes/font_size = 9
 text = "YOU"
 horizontal_alignment = 1
 
+[node name="ScoreRow" type="HBoxContainer" parent="GameArea/PlayerCapturedArea/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 6
+alignment = 1
+
+[node name="ScoreLabel" type="Label" parent="GameArea/PlayerCapturedArea/VBox/ScoreRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 0.9, 0.6, 0.9)
+theme_override_font_sizes/font_size = 9
+text = "Points:"
+
+[node name="PlayerScoreLabel" type="Label" parent="GameArea/PlayerCapturedArea/VBox/ScoreRow"]
+layout_mode = 2
+theme_override_colors/font_color = Color(0.6, 1, 0.5, 1)
+theme_override_font_sizes/font_size = 16
+text = "0"
+
 [node name="PlayerCapturedAnchor" type="Control" parent="GameArea/PlayerCapturedArea/VBox"]
-custom_minimum_size = Vector2(95, 127)
+custom_minimum_size = Vector2(85, 100)
 layout_mode = 2
 size_flags_horizontal = 4
 size_flags_vertical = 6
 
-[node name="CapturedLabel" type="Label" parent="GameArea/PlayerCapturedArea/VBox"]
+[node name="StatsLabelsRow" type="HBoxContainer" parent="GameArea/PlayerCapturedArea/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="CapturedLabel" type="Label" parent="GameArea/PlayerCapturedArea/VBox/StatsLabelsRow"]
 layout_mode = 2
 theme_override_colors/font_color = Color(0.5, 0.7, 0.55, 0.7)
-theme_override_font_sizes/font_size = 9
-text = "captured"
-horizontal_alignment = 1
+theme_override_font_sizes/font_size = 8
+text = "Captured"
 
-[node name="PlayerCaptureCount" type="Label" parent="GameArea/PlayerCapturedArea/VBox"]
+[node name="ScopeLabel" type="Label" parent="GameArea/PlayerCapturedArea/VBox/StatsLabelsRow"]
 layout_mode = 2
+theme_override_colors/font_color = Color(0.5, 0.7, 0.55, 0.7)
+theme_override_font_sizes/font_size = 8
+text = "Scope"
+
+[node name="StatsCountsRow" type="HBoxContainer" parent="GameArea/PlayerCapturedArea/VBox"]
+layout_mode = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="PlayerCaptureCount" type="Label" parent="GameArea/PlayerCapturedArea/VBox/StatsCountsRow"]
+layout_mode = 2
+size_flags_horizontal = 6
 theme_override_colors/font_color = Color(0.5, 1, 0.6, 1)
-theme_override_font_sizes/font_size = 18
+theme_override_font_sizes/font_size = 14
 text = "0"
 horizontal_alignment = 1
+
+[node name="PlayerScopeCount" type="Label" parent="GameArea/PlayerCapturedArea/VBox/StatsCountsRow"]
+layout_mode = 2
+size_flags_horizontal = 6
+theme_override_colors/font_color = Color(0.5, 1, 0.6, 1)
+theme_override_font_sizes/font_size = 14
+text = "0"
+horizontal_alignment = 1
+theme_override_font_sizes/font_size = 16
+text = "0"
 
 [node name="OpponentHandAnchor" type="Control" parent="GameArea"]
 layout_mode = 1
