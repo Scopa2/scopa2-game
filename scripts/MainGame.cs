@@ -3,6 +3,7 @@ using Scopa2Game.Scripts.Models;
 using System.Collections.Generic;
 using System.Linq;
 using System.Threading.Tasks;
+using Scopa2Game.Scripts.Enums;
 
 namespace Scopa2Game.Scripts;
 
@@ -13,8 +14,7 @@ namespace Scopa2Game.Scripts;
 public partial class MainGame : Control
 {
     #region Constants
-    
-    private const string PlayerId = "p2";
+
     private const string CardBackTexturePath = "res://assets/textures/deck/scopaback.png";
     private const float CardWidth = 95f;
     private const float CardHeight = 127f;
@@ -64,6 +64,8 @@ public partial class MainGame : Control
     private readonly List<CardUI> _playerCaptured = new();
     private readonly List<CardUI> _opponentCaptured = new();
     
+    private PlayerIndex _playerIndex;
+    private PlayerIndex _opponentIndex;
     private bool _isPlayerTurn;
     private CardUI _selectedCard;
     private readonly List<CardUI> _selectedTableCards = new();
@@ -145,6 +147,8 @@ public partial class MainGame : Control
         _network.StartGame();
         _menuPanel.Hide();
         _waitingLabel.Show();
+        _playerIndex = PlayerIndex.P1;
+        _opponentIndex = PlayerIndex.P2;
     }
     
     private void OnJoinPressed()
@@ -155,6 +159,8 @@ public partial class MainGame : Control
         _network.JoinGame(gameId);
         _menuPanel.Hide();
         _waitingLabel.Show();
+        _playerIndex = PlayerIndex.P2;
+        _opponentIndex = PlayerIndex.P1;
     }
     
     #endregion
@@ -312,7 +318,7 @@ public partial class MainGame : Control
         string lastMove = GetString(state, "lastMovePgn");
         if (!string.IsNullOrEmpty(lastMove))
         {
-            string mover = _isPlayerTurn ? OpponentId : PlayerId;
+            var mover = _isPlayerTurn ? _opponentIndex : _playerIndex;
             await AnimateLastMove(lastMove, mover);
         }
         
@@ -325,8 +331,8 @@ public partial class MainGame : Control
         var players = state["players"].As<Godot.Collections.Dictionary>();
         
         // Sync hands
-        var myData = players[PlayerId].As<Godot.Collections.Dictionary>();
-        var oppData = players[OpponentId].As<Godot.Collections.Dictionary>();
+        var myData = players[PlayerIndexString(_playerIndex)].As<Godot.Collections.Dictionary>();
+        var oppData = players[PlayerIndexString(_opponentIndex)].As<Godot.Collections.Dictionary>();
         
         string[] myHand = GetStringArray(myData, "hand");
         string[] oppHand = GetStringArray(oppData, "hand");
@@ -440,14 +446,14 @@ public partial class MainGame : Control
 
     #region Animations
     
-    private async Task AnimateLastMove(string pgn, string moverId)
+    private async Task AnimateLastMove(string pgn, PlayerIndex moverIndex)
     {
         var parts = pgn.Split("x");
         string playedCode = parts[0];
         string[] capturedCodes = parts.Length > 1 ? parts[1].Split("+") : System.Array.Empty<string>();
         
         // Get the played card
-        CardUI playedCard = GetPlayedCard(playedCode, moverId);
+        CardUI playedCard = GetPlayedCard(playedCode, moverIndex);
         if (playedCard == null) return;
         
         if (capturedCodes.Length == 0)
@@ -456,13 +462,13 @@ public partial class MainGame : Control
         }
         else
         {
-            await AnimateCapture(playedCard, capturedCodes, moverId == PlayerId);
+            await AnimateCapture(playedCard, capturedCodes, moverIndex == _playerIndex);
         }
     }
     
-    private CardUI GetPlayedCard(string code, string moverId)
+    private CardUI GetPlayedCard(string code, PlayerIndex moverIndex)
     {
-        if (moverId == PlayerId)
+        if (moverIndex == _playerIndex)
         {
             return _cardRegistry.GetValueOrDefault(code);
         }
@@ -584,7 +590,6 @@ public partial class MainGame : Control
 
     #region Helpers
     
-    private string OpponentId => PlayerId == "p1" ? "p2" : "p1";
     
     private List<CardUI> GetCardsIn(Control area)
     {
@@ -637,6 +642,11 @@ public partial class MainGame : Control
     private static string[] GetStringArray(Godot.Collections.Dictionary dict, string key)
     {
         return dict.ContainsKey(key) ? dict[key].AsStringArray() : System.Array.Empty<string>();
+    }
+    
+    private static string PlayerIndexString(PlayerIndex index)
+    {
+        return index == PlayerIndex.P1 ? "p1" : "p2";
     }
     
     #endregion
