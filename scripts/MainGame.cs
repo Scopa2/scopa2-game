@@ -366,6 +366,17 @@ public partial class MainGame : Control
             string code = codes[i];
             CardUI card = GetOrCreateCard(code, area, ref hiddenCount);
             
+            // Set card visual state based on server response
+            // If server sends "X", show back; otherwise show front
+            if (code == "X")
+            {
+                card.ShowCardBack();
+            }
+            else
+            {
+                card.ShowCardFront();
+            }
+            
             if (isPileArea)
             {
                 // For pile areas (captured cards and deck), stack cards with visual effect
