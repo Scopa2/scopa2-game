@@ -13,11 +13,19 @@ public partial class NetworkManager : Node
     private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
 
     private string _gameId = "";
-    private string _playerSecret = "marco";
+    private string _playerSecret = "";
     private PusherClient _pusherClient;
 
     public override void _Ready()
     {
+        // Generate a unique player secret for this session
+        // _playerSecret = System.Guid.NewGuid().ToString();
+        // GD.Print($"NetworkManager: Player secret generated: {_playerSecret}");
+        
+        // For testing purposes, get player secret from environment variable
+        _playerSecret = System.Environment.GetEnvironmentVariable("PLAYER_SECRET") ?? "";
+        GD.Print($"NetworkManager: Player secret from env: {_playerSecret}");
+        
         InitializeWebSocket();
     }
 
