@@ -1,13 +1,20 @@
+using System;
 using Godot;
 using System.Text;
 using System.Threading.Tasks;
+using System.Text.Json;
+using Scopa2Game.Scripts.Models;
 
 namespace Scopa2Game.Scripts;
 
 public partial class NetworkManager : Node
 {
+    // C# Events for complex types (Godot Signals don't support POCOs well)
+    public event Action<GameState> StateUpdated;
+    public event Action<RoundResults> RoundFinished;
+
     [Signal]
-    public delegate void StateUpdatedEventHandler(Godot.Collections.Dictionary state);
+    public delegate void NetworkErrorEventHandler(string errorMessage);
 
     private const string BaseUrl = "http://100.76.114.126:8000/api";
     private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
@@ -16,16 +23,17 @@ public partial class NetworkManager : Node
     private string _playerSecret = "";
     private PusherClient _pusherClient;
 
+    private readonly JsonSerializerOptions _jsonOptions = new()
+    {
+        PropertyNameCaseInsensitive = true
+    };
+
     public override void _Ready()
     {
-        // Generate a unique player secret for this session
-        // _playerSecret = System.Guid.NewGuid().ToString();
-        // GD.Print($"NetworkManager: Player secret generated: {_playerSecret}");
-        
         // For testing purposes, get player secret from environment variable
-        _playerSecret = System.Environment.GetEnvironmentVariable("PLAYER_SECRET") ?? "";
+        _playerSecret = System.Environment.GetEnvironmentVariable("PLAYER_SECRET") ?? "SECRET";
         GD.Print($"NetworkManager: Player secret from env: {_playerSecret}");
-        
+
         InitializeWebSocket();
     }
 
@@ -34,15 +42,20 @@ public partial class NetworkManager : Node
     public async void StartGame()
     {
         GD.Print("NetworkManager: Starting new game...");
-        var data = await SendApiRequest("/games", HttpClient.Method.Post);
+        // We expect a dictionary or object with game_id
+        var data = await SendApiRequest<JsonElement>("/games", HttpClient.Method.Post);
 
-        if (data != null && data.ContainsKey("game_id"))
+        if (data.ValueKind != JsonValueKind.Undefined && data.TryGetProperty("game_id", out var gameIdProp))
         {
-            _gameId = data["game_id"].AsString();
+            _gameId = gameIdProp.GetString();
             GD.Print($"NetworkManager: Game created with ID: {_gameId}");
-            
+
             _pusherClient.Subscribe(_playerSecret + "_games");
             await FetchGameState();
+        }
+        else
+        {
+            EmitSignal(SignalName.NetworkError, "Failed to start game. Please try again.");
         }
     }
 
@@ -53,12 +66,16 @@ public partial class NetworkManager : Node
         _gameId = gameId;
         GD.Print($"NetworkManager: Joining game {_gameId}");
 
-        var data = await SendApiRequest($"/games/{_gameId}/join", HttpClient.Method.Post);
+        var data = await SendApiRequest<JsonElement>($"/games/{_gameId}/join", HttpClient.Method.Post);
 
-        if (data != null)
+        if (data.ValueKind != JsonValueKind.Undefined)
         {
             _pusherClient.Subscribe(_playerSecret + "_games");
             await FetchGameState();
+        }
+        else
+        {
+            EmitSignal(SignalName.NetworkError, $"Failed to join game {_gameId}. Please check the ID and try again.");
         }
     }
 
@@ -67,21 +84,34 @@ public partial class NetworkManager : Node
         if (string.IsNullOrEmpty(_gameId)) return;
 
         GD.Print($"NetworkManager: Sending action: {action}");
-        var body = new Godot.Collections.Dictionary { { "action", action } };
-        
+        var body = new { action };
+
         // We don't need the return data for actions, just fire and forget
-        await SendApiRequest($"/games/{_gameId}/action", HttpClient.Method.Post, body);
+        await SendApiRequest<JsonElement>($"/games/{_gameId}/action", HttpClient.Method.Post, body);
     }
 
     public async Task FetchGameState()
     {
         if (string.IsNullOrEmpty(_gameId)) return;
 
-        var data = await SendApiRequest($"/games/{_gameId}", HttpClient.Method.Get);
-        
-        if (data != null && data.ContainsKey("state"))
+        var data = await SendApiRequest<JsonElement>($"/games/{_gameId}", HttpClient.Method.Get);
+
+        if (data.ValueKind != JsonValueKind.Undefined && data.TryGetProperty("state", out var stateProp))
         {
-            EmitSignal(SignalName.StateUpdated, data);
+            try
+            {
+                var gameState = stateProp.Deserialize<GameState>(_jsonOptions);
+                StateUpdated?.Invoke(gameState);
+            }
+            catch (JsonException ex)
+            {
+                GD.PrintErr($"NetworkManager: Failed to deserialize game state: {ex.Message}");
+                EmitSignal(SignalName.NetworkError, "Failed to parse game state.");
+            }
+        }
+        else
+        {
+            EmitSignal(SignalName.NetworkError, "Failed to fetch game state. Please try again.");
         }
     }
 
@@ -89,20 +119,22 @@ public partial class NetworkManager : Node
 
     /// <summary>
     /// A single utility method to handle ALL HTTP requests, JSON parsing, and node cleanup.
+    /// Returns default(T) (null) on failure.
     /// </summary>
-    private async Task<Godot.Collections.Dictionary> SendApiRequest(string endpoint, HttpClient.Method method, Godot.Collections.Dictionary body = null)
+    private async Task<T> SendApiRequest<T>(string endpoint, HttpClient.Method method, object body = null)
     {
         // 1. Setup Request Node
         var req = new HttpRequest();
         AddChild(req);
 
         // 2. Prepare Headers & Body
-        string[] headers = {
+        string[] headers =
+        {
             "Accept: application/json",
             "Content-Type: application/json",
             $"player_secret: {_playerSecret}"
         };
-        string jsonBody = body != null ? Json.Stringify(body) : "";
+        string jsonBody = body != null ? JsonSerializer.Serialize(body, _jsonOptions) : "";
 
         // 3. Send Request
         req.Request(BaseUrl + endpoint, headers, method, jsonBody);
@@ -117,14 +149,22 @@ public partial class NetworkManager : Node
 
         if (responseCode < 200 || responseCode >= 300)
         {
-            GD.PrintErr($"NetworkManager: API Error {responseCode} at {endpoint}. Response: {Encoding.UTF8.GetString(responseBody)}");
-            return null;
+            GD.PrintErr(
+                $"NetworkManager: API Error {responseCode} at {endpoint}. Response: {Encoding.UTF8.GetString(responseBody)}");
+            return default;
         }
 
         string jsonString = Encoding.UTF8.GetString(responseBody);
-        var jsonResult = Json.ParseString(jsonString);
 
-        return jsonResult.VariantType == Variant.Type.Nil ? null : jsonResult.AsGodotDictionary();
+        try
+        {
+            return JsonSerializer.Deserialize<T>(jsonString, _jsonOptions);
+        }
+        catch (JsonException ex)
+        {
+            GD.PrintErr($"NetworkManager: JSON Parse Error: {ex.Message}");
+            return default;
+        }
     }
 
     // --- WEBSOCKETS ---
@@ -142,10 +182,54 @@ public partial class NetworkManager : Node
     {
         GD.Print($"NetworkManager: WS Event '{eventName}'");
         
-        // NOTE: I corrected a potential typo here from "game_sate_updated" to "game_state_updated"
-        if (eventName == "game_state_updated" && data.VariantType == Variant.Type.Dictionary)
+        try 
         {
-            EmitSignal(SignalName.StateUpdated, data.AsGodotDictionary());
+            // Convert Godot Dictionary back to JSON string for consistent deserialization
+            string json = Godot.Json.Stringify(data);
+            using var doc = JsonDocument.Parse(json);
+            var root = doc.RootElement;
+
+            switch (eventName)
+            {
+                case "game_state_updated":
+                {
+                    GameState gameState = null;
+                
+                    // Check if wrapped in "state"
+                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("state", out var stateProp))
+                    {
+                        gameState = stateProp.Deserialize<GameState>(_jsonOptions);
+                    }
+                
+                    if (gameState != null)
+                    {
+                        StateUpdated?.Invoke(gameState);
+                    }
+
+                    break;
+                }
+                case "round_finished":
+                {
+                    RoundResults results = null;
+                    // Check if wrapped in "state" or similar - though usually round_finished might be distinct
+                    // For now, assume it might be wrapped or direct, similar pattern
+                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("state", out var stateProp))
+                    {
+                        results = stateProp.Deserialize<RoundResults>(_jsonOptions);
+                    }
+
+                    if (results != null)
+                    {
+                        RoundFinished?.Invoke(results);
+                    }
+
+                    break;
+                }
+            }
+        }
+        catch (JsonException ex)
+        {
+             GD.PrintErr($"NetworkManager: Failed to deserialize Pusher event '{eventName}': {ex.Message}");
         }
     }
 }

@@ -111,6 +111,7 @@ public partial class MainGame : Control
     private void ConnectSignals()
     {
         _network.StateUpdated += OnGameStateReceived;
+        _network.NetworkError += OnNetworkError;
         _startButton.Pressed += OnStartPressed;
         _joinButton.Pressed += OnJoinPressed;
     }
@@ -277,12 +278,9 @@ public partial class MainGame : Control
 
     #region State Synchronization
     
-    private async void OnGameStateReceived(Godot.Collections.Dictionary data)
+    private async void OnGameStateReceived(GameState state)
     {
-        if (!data.ContainsKey("state")) return;
-        
-        var state = data["state"].As<Godot.Collections.Dictionary>();
-        _isPlayerTurn = bool.Parse(state["isMyTurn"].ToString());
+        _isPlayerTurn = state.IsMyTurn;
         
         // Hide menu, show game
         _menuPanel.Hide();
@@ -292,31 +290,29 @@ public partial class MainGame : Control
         if (!_isPlayerTurn) DeselectAll();
         
         // Animate last move if present
-        string lastMove = GetString(state, "lastMovePgn");
-        if (!string.IsNullOrEmpty(lastMove))
+        if (!string.IsNullOrEmpty(state.LastMovePgn))
         {
             var mover = _isPlayerTurn ? _opponentIndex : _playerIndex;
-            await AnimateLastMove(lastMove, mover);
+            await AnimateLastMove(state.LastMovePgn, mover);
         }
         
         // Sync board state
         SyncGameState(state);
     }
     
-    private void SyncGameState(Godot.Collections.Dictionary state)
+    private void SyncGameState(GameState state)
     {
-        var players = state["players"].As<Godot.Collections.Dictionary>();
-        
         // Sync hands
-        var myData = players[PlayerIndexString(_playerIndex)].As<Godot.Collections.Dictionary>();
-        var oppData = players[PlayerIndexString(_opponentIndex)].As<Godot.Collections.Dictionary>();
+        var myData = state.Players[PlayerIndexString(_playerIndex)];
+        var oppData = state.Players[PlayerIndexString(_opponentIndex)];
         
-        string[] myHand = GetStringArray(myData, "hand");
-        string[] oppHand = GetStringArray(oppData, "hand");
-        string[] tableCards = GetStringArray(state, "table");
-        string[] myCaptured = GetStringArray(myData, "captured");
-        string[] oppCaptured = GetStringArray(oppData, "captured");
-        string[] deckCards = GetStringArray(state, "deck");
+        // Ensure lists are not null (model initializes them, but good to be safe if deserialize fails weirdly)
+        var myHand = myData.Hand;
+        var oppHand = oppData.Hand;
+        var tableCards = state.Table;
+        var myCaptured = myData.Captured;
+        var oppCaptured = oppData.Captured;
+        var deckCards = state.Deck;
          
         SyncCardGroup(myHand, _playerHand);
         SyncCardGroup(oppHand, _opponentHand);
@@ -326,23 +322,19 @@ public partial class MainGame : Control
         SyncCardGroup(deckCards, _deckPosition);
         
         // Update deck count display
-        _deckCountLabel.Text = deckCards.Length.ToString();
+        _deckCountLabel.Text = deckCards.Count.ToString();
         
         // Update capture counts
-        _playerCaptureCount.Text = myCaptured.Length.ToString();
-        _opponentCaptureCount.Text = oppCaptured.Length.ToString();
+        _playerCaptureCount.Text = myCaptured.Count.ToString();
+        _opponentCaptureCount.Text = oppCaptured.Count.ToString();
         
         // Update scope counts
-        int myScope = myData.ContainsKey("scope") ? (int)double.Parse(myData["scope"].ToString(), System.Globalization.CultureInfo.InvariantCulture) : 0;
-        int oppScope = oppData.ContainsKey("scope") ? (int)double.Parse(oppData["scope"].ToString(), System.Globalization.CultureInfo.InvariantCulture) : 0;
-        _playerScopeCount.Text = myScope.ToString();
-        _opponentScopeCount.Text = oppScope.ToString();
+        _playerScopeCount.Text = myData.Scope.ToString("0");
+        _opponentScopeCount.Text = oppData.Scope.ToString("0");
         
         // Update scores
-        int myScore = myData.ContainsKey("totalScore") ? (int)double.Parse(myData["totalScore"].ToString(), System.Globalization.CultureInfo.InvariantCulture) : 0;
-        int oppScore = oppData.ContainsKey("totalScore") ? (int)double.Parse(oppData["totalScore"].ToString(), System.Globalization.CultureInfo.InvariantCulture) : 0;
-        _playerScoreLabel.Text = myScore.ToString();
-        _opponentScoreLabel.Text = oppScore.ToString();
+        _playerScoreLabel.Text = myData.TotalScore.ToString("0");
+        _opponentScoreLabel.Text = oppData.TotalScore.ToString("0");
         
         // Clean up removed cards
         CleanupArea(_playerHand, myHand);
@@ -353,7 +345,7 @@ public partial class MainGame : Control
         CleanupArea(_deckPosition, deckCards);
     }
     
-    private void SyncCardGroup(string[] codes, Control area)
+    private void SyncCardGroup(List<string> codes, Control area)
     {
         var center = area.Size / 2;
         int hiddenCount = 0;
@@ -361,7 +353,7 @@ public partial class MainGame : Control
         // Check if this is a pile area (cards stack in center, don't spread)
         bool isPileArea = area == _playerCapturePile || area == _opponentCapturePile || area == _deckPosition;
         
-        for (int i = 0; i < codes.Length; i++)
+        for (int i = 0; i < codes.Count; i++)
         {
             string code = codes[i];
             CardUI card = GetOrCreateCard(code, area, ref hiddenCount);
@@ -393,7 +385,7 @@ public partial class MainGame : Control
                 card.Modulate = Colors.White;
                 card.ZIndex = 0;
                 
-                Vector2 targetPos = CalculateCardPosition(i, codes.Length, center);
+                Vector2 targetPos = CalculateCardPosition(i, codes.Count, center);
                 AnimateCardToPosition(card, area.GlobalPosition + targetPos, i * AnimCardStagger);
             }
         }
@@ -466,7 +458,7 @@ public partial class MainGame : Control
         return new Vector2(startX + index * spacing, y);
     }
     
-    private void CleanupArea(Control area, string[] validCodes)
+    private void CleanupArea(Control area, List<string> validCodes)
     {
         int validHidden = validCodes.Count(c => c == "X");
         int hiddenSeen = 0;
@@ -693,22 +685,22 @@ public partial class MainGame : Control
         return CanSumTo(target - first.CardData.Rank, rest) || CanSumTo(target, rest);
     }
     
-    private static string GetString(Godot.Collections.Dictionary dict, string key)
-    {
-        return dict.ContainsKey(key) && dict[key].VariantType != Variant.Type.Nil
-            ? dict[key].AsString()
-            : "";
-    }
-    
-    private static string[] GetStringArray(Godot.Collections.Dictionary dict, string key)
-    {
-        return dict.ContainsKey(key) ? dict[key].AsStringArray() : System.Array.Empty<string>();
-    }
-    
     private static string PlayerIndexString(PlayerIndex index)
     {
         return index == PlayerIndex.P1 ? "p1" : "p2";
     }
     
+    #endregion
+    
+    #region Error Handling
+    private void OnNetworkError(string errorMessage)
+    {
+        GD.PrintErr($"Network Error: {errorMessage}");
+        _menuPanel.Show();
+        _startButton.Text = "ERROR: " + errorMessage;
+        _waitingLabel.Hide();
+        _turnIndicator.Hide();
+        DeselectAll();
+    }
     #endregion
 }
