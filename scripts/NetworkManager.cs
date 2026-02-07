@@ -11,7 +11,7 @@ public partial class NetworkManager : Node
 {
     // C# Events for complex types (Godot Signals don't support POCOs well)
     public event Action<GameState> StateUpdated;
-    public event Action<RoundResults> RoundFinished;
+    public event Action<RoundFinished> RoundFinished;
 
     [Signal]
     public delegate void NetworkErrorEventHandler(string errorMessage);
@@ -210,17 +210,17 @@ public partial class NetworkManager : Node
                 }
                 case "round_finished":
                 {
-                    RoundResults results = null;
+                    RoundFinished finished = null;
                     // Check if wrapped in "state" or similar - though usually round_finished might be distinct
                     // For now, assume it might be wrapped or direct, similar pattern
-                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("state", out var stateProp))
+                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("results", out var stateProp))
                     {
-                        results = stateProp.Deserialize<RoundResults>(_jsonOptions);
+                        finished = stateProp.Deserialize<RoundFinished>(_jsonOptions);
                     }
 
-                    if (results != null)
+                    if (finished != null)
                     {
-                        RoundFinished?.Invoke(results);
+                        RoundFinished?.Invoke(finished);
                     }
 
                     break;
