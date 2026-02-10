@@ -4,6 +4,7 @@ using System.Text;
 using System.Threading.Tasks;
 using System.Text.Json;
 using Scopa2Game.Scripts.Models;
+using Scopa2Game.Scripts.Models.Converters;
 
 namespace Scopa2Game.Scripts;
 
@@ -27,7 +28,8 @@ public partial class NetworkManager : Node
 
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
-        PropertyNameCaseInsensitive = true
+        PropertyNameCaseInsensitive = true,
+        Converters = { new DoubleToIntConverter() }
     };
 
     public override void _Ready()
