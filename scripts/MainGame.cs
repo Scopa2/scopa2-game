@@ -322,12 +322,7 @@ public partial class MainGame : Control
         private async void OnGameFinished(GameFinished finished)
         {
             RoundFinishedCleanTable(finished.LastCapturePlayer);
-            Console.WriteLine("Game Over!");
-            Console.WriteLine("Final Scores:");
-            Console.WriteLine("Player: " + PlayerIndexString(_playerIndex));
-            Console.WriteLine(finished.GameScores[PlayerIndexString(_playerIndex)]);
-            Console.WriteLine("Opponent: " + PlayerIndexString(_opponentIndex));
-            Console.WriteLine(finished.GameScores[PlayerIndexString(_opponentIndex)]);
+            ShowGameResultsDialog(finished);
         }
     
          private async void RoundFinishedCleanTable(string lastCapturePlayer)
@@ -901,6 +896,18 @@ public partial class MainGame : Control
     {
         var dialog = new RoundResultsDialog();
         dialog.Populate(finished, PlayerIndexString(_playerIndex), PlayerIndexString(_opponentIndex));
+        AddChild(dialog);
+    }
+
+    private void ShowGameResultsDialog(GameFinished finished)
+    {
+        var dialog = new GameResultsDialog();
+        dialog.Populate(finished, PlayerIndexString(_playerIndex), PlayerIndexString(_opponentIndex));
+        dialog.Closed += () =>
+        {
+            _menuPanel.Show();
+            _turnIndicator.Hide();
+        };
         AddChild(dialog);
     }
 
