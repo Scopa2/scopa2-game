@@ -169,9 +169,9 @@ grow_vertical = 2
 [node name="DeckArea" type="Panel" parent="GameArea"]
 layout_mode = 1
 anchors_preset = -1
-anchor_left = 0.02
+anchor_left = 0.11
 anchor_top = 0.28
-anchor_right = 0.13
+anchor_right = 0.22
 anchor_bottom = 0.72
 grow_horizontal = 2
 grow_vertical = 2

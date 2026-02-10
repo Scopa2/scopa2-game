@@ -56,6 +56,9 @@ public partial class MainGame : Control
     private Button _startButton;
     private Button _joinButton;
     private LineEdit _gameIdInput;
+    private ShopPanel _shopPanel;
+    private SantiPanel _playerSantiPanel;
+    private SantiPanel _opponentSantiPanel;
 
     #endregion
 
@@ -110,6 +113,41 @@ public partial class MainGame : Control
         _startButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/StartButton");
         _joinButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
         _gameIdInput = GetNode<LineEdit>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameLineEdit");
+
+        // Shop panel — positioned left of the deck, centered vertically
+        _shopPanel = new ShopPanel();
+        _shopPanel.SetAnchorsPreset(LayoutPreset.TopLeft);
+        _shopPanel.AnchorLeft = 0.01f;
+        _shopPanel.AnchorTop = 0.28f;
+        _shopPanel.AnchorRight = 0.10f;
+        _shopPanel.AnchorBottom = 0.72f;
+        _shopPanel.GrowHorizontal = GrowDirection.End;
+        _shopPanel.GrowVertical = GrowDirection.End;
+        GetNode<Control>("GameArea").AddChild(_shopPanel);
+
+        // Player santi panel — bottom-left, grows horizontally
+        _playerSantiPanel = new SantiPanel("MY SANTI");
+        _playerSantiPanel.SetAnchorsPreset(LayoutPreset.BottomLeft);
+        _playerSantiPanel.AnchorLeft = 0.01f;
+        _playerSantiPanel.AnchorTop = 0.92f;
+        _playerSantiPanel.AnchorRight = 0.5f;
+        _playerSantiPanel.AnchorBottom = 0.99f;
+        _playerSantiPanel.GrowHorizontal = GrowDirection.End;
+        _playerSantiPanel.GrowVertical = GrowDirection.Begin;
+        _playerSantiPanel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        GetNode<Control>("GameArea").AddChild(_playerSantiPanel);
+
+        // Opponent santi panel — top-left, grows horizontally
+        _opponentSantiPanel = new SantiPanel("OPP SANTI");
+        _opponentSantiPanel.SetAnchorsPreset(LayoutPreset.TopLeft);
+        _opponentSantiPanel.AnchorLeft = 0.01f;
+        _opponentSantiPanel.AnchorTop = 0.01f;
+        _opponentSantiPanel.AnchorRight = 0.5f;
+        _opponentSantiPanel.AnchorBottom = 0.08f;
+        _opponentSantiPanel.GrowHorizontal = GrowDirection.End;
+        _opponentSantiPanel.GrowVertical = GrowDirection.End;
+        _opponentSantiPanel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
+        GetNode<Control>("GameArea").AddChild(_opponentSantiPanel);
     }
 
     private void ConnectSignals()
@@ -120,6 +158,9 @@ public partial class MainGame : Control
         _network.NetworkError += OnNetworkError;
         _startButton.Pressed += OnStartPressed;
         _joinButton.Pressed += OnJoinPressed;
+        _shopPanel.SantoClicked += OnSantoClicked;
+        _playerSantiPanel.SantoClicked += OnOwnedSantoClicked;
+        _opponentSantiPanel.SantoClicked += OnOpponentSantoClicked;
     }
 
     #endregion
@@ -578,6 +619,13 @@ public partial class MainGame : Control
             _playerScoreLabel.Text = myData.TotalScore.ToString("0");
             _opponentScoreLabel.Text = oppData.TotalScore.ToString("0");
             
+            // Sync shop
+            _shopPanel.SyncShop(state.Shop);
+
+            // Sync owned santi
+            _playerSantiPanel.SyncSanti(myData.Santi);
+            _opponentSantiPanel.SyncSanti(oppData.Santi);
+            
             // Clean up removed cards
             CleanupArea(_playerHand, myHand);
             CleanupArea(_opponentHand, oppHand);
@@ -909,6 +957,40 @@ public partial class MainGame : Control
             _turnIndicator.Hide();
         };
         AddChild(dialog);
+    }
+
+    private void OnSantoClicked(ShopItem item)
+    {
+        var dialog = new SantoDetailDialog();
+        dialog.Populate(item, _isPlayerTurn);
+        dialog.BuyRequested += OnBuyRequested;
+        AddChild(dialog);
+    }
+
+    private void OnBuyRequested(string santoId)
+    {
+        SendAction($"${santoId}()");
+    }
+
+    private void OnOwnedSantoClicked(ShopItem item)
+    {
+        var dialog = new SantoDetailDialog();
+        dialog.Populate(item, _isPlayerTurn, SantoDetailDialog.DialogMode.Play);
+        dialog.PlayRequested += OnPlaySantoRequested;
+        AddChild(dialog);
+    }
+
+    private void OnOpponentSantoClicked(ShopItem item)
+    {
+        // Opponent's santi are view-only (can't act = false)
+        var dialog = new SantoDetailDialog();
+        dialog.Populate(item, false, SantoDetailDialog.DialogMode.Play);
+        AddChild(dialog);
+    }
+
+    private void OnPlaySantoRequested(string santoId)
+    {
+        SendAction($"@{santoId}[]");
     }
 
     #endregion

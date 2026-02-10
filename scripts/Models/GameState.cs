@@ -22,4 +22,7 @@ public partial class GameState
 
     [JsonPropertyName("players")]
     public Dictionary<string, PlayerState> Players { get; set; } = new();
+
+    [JsonPropertyName("shop")]
+    public List<ShopItem> Shop { get; set; } = new();
 }
