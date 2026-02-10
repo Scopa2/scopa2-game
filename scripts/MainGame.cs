@@ -116,6 +116,7 @@ public partial class MainGame : Control
     {
         _network.StateUpdated += OnGameStateReceived;
         _network.RoundFinished += OnRoundFinished;
+        _network.GameFinished += OnGameFinished;
         _network.NetworkError += OnNetworkError;
         _startButton.Pressed += OnStartPressed;
         _joinButton.Pressed += OnJoinPressed;
@@ -313,8 +314,26 @@ public partial class MainGame : Control
         
         private async void OnRoundFinished(RoundFinished finished)
         {
+            RoundFinishedCleanTable(finished.LastCapturePlayer);
+            ShowRoundResultsDialog(finished);
+        }
+        
+
+        private async void OnGameFinished(GameFinished finished)
+        {
+            RoundFinishedCleanTable(finished.LastCapturePlayer);
+            Console.WriteLine("Game Over!");
+            Console.WriteLine("Final Scores:");
+            Console.WriteLine("Player: " + PlayerIndexString(_playerIndex));
+            Console.WriteLine(finished.GameScores[PlayerIndexString(_playerIndex)]);
+            Console.WriteLine("Opponent: " + PlayerIndexString(_opponentIndex));
+            Console.WriteLine(finished.GameScores[PlayerIndexString(_opponentIndex)]);
+        }
+    
+         private async void RoundFinishedCleanTable(string lastCapturePlayer)
+        {
             // 1. Determine who takes the cards
-            bool isMyCapture = finished.LastCapturePlayer == PlayerIndexString(_playerIndex);
+            bool isMyCapture = lastCapturePlayer == PlayerIndexString(_playerIndex);
             Control targetPile = isMyCapture ? _playerCapturePile : _opponentCapturePile;
     
             // 2. Lock interaction
@@ -358,11 +377,7 @@ public partial class MainGame : Control
     
             // 6. Visual Feedback
             ShowFloatingText(targetPile, "Round Cleared!", isMyCapture ? Colors.Green : Colors.Red);
-
-            // 7. Show round results dialog (game events keep processing in the background)
-            ShowRoundResultsDialog(finished);
         }
-    
         private async Task AnimateHandDropToTable(CardUI card, bool isPlayer, float delay = 0f)
         {
             // 1. Visual setup: Show front if it was hidden (opponent's cards)
