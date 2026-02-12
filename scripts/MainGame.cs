@@ -65,6 +65,12 @@ public partial class MainGame : Control
     #region Game State
 
     private readonly Dictionary<string, CardUI> _cardRegistry = new();
+    
+    /// <summary>
+    /// Tracks the current mutations (originalCode -> mutatedCode)
+    /// Used to detect new mutations for animation purposes
+    /// </summary>
+    private Dictionary<string, string> _currentMutations = new();
 
     private PlayerIndex _playerIndex;
     private PlayerIndex _opponentIndex;
@@ -217,19 +223,19 @@ public partial class MainGame : Control
         _selectedCard = card;
         card.SetSelectedState(true);
 
-        // Determine valid table targets
+        // Determine valid table targets using effective (mutated) values
         var tableCards = GetCardsIn(_table);
-        int rank = card.CardData.Rank;
+        int rank = GetEffectiveRank(card);
 
-        // Check for direct rank matches first
-        var directMatches = tableCards.Where(c => c.CardData.Rank == rank).ToList();
+        // Check for direct rank matches first (using effective ranks)
+        var directMatches = tableCards.Where(c => GetEffectiveRank(c) == rank).ToList();
         if (directMatches.Any())
         {
             EnableOnlyCards(directMatches);
             return;
         }
 
-        // Check for sum combinations
+        // Check for sum combinations (using effective ranks)
         var validForSum = FindCardsValidForSum(rank, tableCards);
         if (validForSum.Any())
         {
@@ -257,8 +263,9 @@ public partial class MainGame : Control
             _selectedTableCards.Add(card);
         }
 
-        int currentSum = _selectedTableCards.Sum(c => c.CardData.Rank);
-        int targetRank = _selectedCard.CardData.Rank;
+        // Use effective (mutated) ranks for sum calculations
+        int currentSum = _selectedTableCards.Sum(c => GetEffectiveRank(c));
+        int targetRank = GetEffectiveRank(_selectedCard);
 
         // Exact match - execute capture
         if (currentSum == targetRank)
@@ -333,6 +340,8 @@ public partial class MainGame : Control
     
         private async Task ProcessGameState(GameState state)
         {
+            //_syncRegistryWithServerCards(state);
+            
             _isPlayerTurn = state.IsMyTurn;
             
             // Hide menu, show game
@@ -343,14 +352,17 @@ public partial class MainGame : Control
             if (!_isPlayerTurn) DeselectAll();
             
             // Animate last move if present
-            if (!string.IsNullOrEmpty(state.LastMovePgn))
+            if (!string.IsNullOrEmpty(state.LastMovePgn) && IsActionCardPlay(state.LastMovePgn))
             {
                 var mover = _isPlayerTurn ? _opponentIndex : _playerIndex;
-                await AnimateLastMove(state.LastMovePgn, mover);
+                await AnimateCaptureOrCardPlayed(state.LastMovePgn, mover);
             }
             
             // Sync board state
             SyncGameState(state);
+            
+            // Apply mutations after syncing (this handles display and animations for newly mutated cards)
+            ApplyMutations(state.Mutations);
         }
         
         private async void OnRoundFinished(RoundFinished finished)
@@ -785,9 +797,74 @@ public partial class MainGame : Control
         }
         
         #endregion
+        
+    #region Mutations
+    
+    /// <summary>
+    /// Apply mutations to cards. Cards are tracked by their original code but display/behave as their mutated value.
+    /// </summary>
+    private void ApplyMutations(Dictionary<string, string> mutations)
+    {
+        mutations ??= new Dictionary<string, string>();
+        
+        // Find newly added or changed mutations (for animation)
+        var newMutations = new HashSet<string>();
+        foreach (var kvp in mutations)
+        {
+            if (!_currentMutations.TryGetValue(kvp.Key, out var oldValue) || oldValue != kvp.Value)
+            {
+                newMutations.Add(kvp.Key);
+            }
+        }
+        
+        // Apply mutations to all registered cards
+        foreach (var kvp in _cardRegistry)
+        {
+            string originalCode = kvp.Key;
+            CardUI card = kvp.Value;
+            
+            if (mutations.TryGetValue(originalCode, out var mutatedCode))
+            {
+                // This card is mutated - animate only if it's a new mutation
+                bool shouldAnimate = newMutations.Contains(originalCode);
+                card.ApplyMutation(mutatedCode, shouldAnimate);
+            }
+            else if (card.IsMutated)
+            {
+                // This card was previously mutated but no longer is - clear mutation
+                card.ClearMutation();
+            }
+        }
+        
+        // Update tracked mutations
+        _currentMutations = new Dictionary<string, string>(mutations);
+    }
+    
+    /// <summary>
+    /// Get the effective (possibly mutated) card code for a given original code
+    /// </summary>
+    private string GetEffectiveCardCode(string originalCode)
+    {
+        if (_currentMutations.TryGetValue(originalCode, out var mutated))
+        {
+            return mutated;
+        }
+        return originalCode;
+    }
+    
+    /// <summary>
+    /// Get the effective rank of a card (considering mutations)
+    /// </summary>
+    private int GetEffectiveRank(CardUI card)
+    {
+        return card.EffectiveCardData?.Rank ?? card.CardData?.Rank ?? 0;
+    }
+    
+    #endregion
+
     #region Animations
 
-    private async Task AnimateLastMove(string pgn, PlayerIndex moverIndex)
+    private async Task AnimateCaptureOrCardPlayed(string pgn, PlayerIndex moverIndex)
     {
         var parts = pgn.Split("x");
         string playedCode = parts[0];
@@ -1019,11 +1096,12 @@ public partial class MainGame : Control
     {
         return pool.Where(card =>
         {
-            if (card.CardData.Rank > target) return false;
-            if (card.CardData.Rank == target) return true;
+            int effectiveRank = GetEffectiveRank(card);
+            if (effectiveRank > target) return false;
+            if (effectiveRank == target) return true;
 
             var remaining = pool.Where(c => c != card).ToList();
-            return CanSumTo(target - card.CardData.Rank, remaining);
+            return CanSumTo(target - effectiveRank, remaining);
         }).ToList();
     }
 
@@ -1034,13 +1112,35 @@ public partial class MainGame : Control
 
         var first = pool[0];
         var rest = pool.Skip(1).ToList();
+        int effectiveRank = GetEffectiveRank(first);
 
-        return CanSumTo(target - first.CardData.Rank, rest) || CanSumTo(target, rest);
+        return CanSumTo(target - effectiveRank, rest) || CanSumTo(target, rest);
     }
 
     private static string PlayerIndexString(PlayerIndex index)
     {
         return index == PlayerIndex.P1 ? "p1" : "p2";
+    }
+    
+    private static bool IsActionShopBuy(string action)
+    {
+        return action.StartsWith("$");
+    }
+
+    private static bool IsActionSantoUse(string action)
+    {
+        return action.StartsWith("@");
+    }
+    
+    private static bool IsActionCapture(string action)
+    {
+        return action.Contains("x");
+    }
+    
+    // This includes also captures
+    private static bool IsActionCardPlay(string action)
+    {
+        return !IsActionShopBuy(action) && !IsActionSantoUse(action);
     }
 
     #endregion

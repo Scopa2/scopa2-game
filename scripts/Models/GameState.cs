@@ -1,5 +1,6 @@
 using System.Collections.Generic;
 using System.Text.Json.Serialization;
+using Scopa2Game.Scripts.Models.Converters;
 
 namespace Scopa2Game.Scripts.Models;
 
@@ -13,6 +14,10 @@ public partial class GameState
 
     [JsonPropertyName("lastMovePgn")]
     public string LastMovePgn { get; set; }
+    
+    [JsonPropertyName("mutations")]
+    [JsonConverter(typeof(MutationsDictionaryConverter))]
+    public Dictionary<string,string> Mutations { get; set; } = new();
 
     [JsonPropertyName("deck")]
     public List<string> Deck { get; set; } = new();

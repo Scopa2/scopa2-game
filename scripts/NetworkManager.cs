@@ -19,8 +19,8 @@ public partial class NetworkManager : Node
     public delegate void NetworkErrorEventHandler(string errorMessage);
 
     //private const string BaseUrl = "http://100.76.114.126:8000/api";
-    private const string BaseUrl = "http://100.109.16.123:8000/api";
-    private const string ReverbUrl = "ws://100.109.16.123:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
+    private const string BaseUrl = "http://100.76.114.126:8000/api";
+    private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
 
     private string _gameId = "";
     private string _playerSecret = "";
