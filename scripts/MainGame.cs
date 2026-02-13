@@ -25,6 +25,7 @@ public partial class MainGame : Control
     private const float AnimPlayCard = 0.2f;
     private const float AnimCollectCards = 0.25f;
     private const float AnimCardStagger = 0.1f;
+    private const float SantiGapPixels = 20f;
 
     #endregion
 
@@ -57,8 +58,12 @@ public partial class MainGame : Control
     private Button _joinButton;
     private LineEdit _gameIdInput;
     private ShopPanel _shopPanel;
-    private SantiPanel _playerSantiPanel;
-    private SantiPanel _opponentSantiPanel;
+
+    // Santi cards rendered inline with player/opponent hands
+    private readonly List<TextureButton> _playerSantiCards = new();
+    private readonly List<TextureButton> _opponentSantiCards = new();
+    private List<ShopItem> _currentPlayerSantiItems = new();
+    private List<ShopItem> _currentOpponentSantiItems = new();
 
     #endregion
 
@@ -131,29 +136,8 @@ public partial class MainGame : Control
         _shopPanel.GrowVertical = GrowDirection.End;
         GetNode<Control>("GameArea").AddChild(_shopPanel);
 
-        // Player santi panel — bottom-left, grows horizontally
-        _playerSantiPanel = new SantiPanel("MY SANTI");
-        _playerSantiPanel.SetAnchorsPreset(LayoutPreset.BottomLeft);
-        _playerSantiPanel.AnchorLeft = 0.01f;
-        _playerSantiPanel.AnchorTop = 0.92f;
-        _playerSantiPanel.AnchorRight = 0.5f;
-        _playerSantiPanel.AnchorBottom = 0.99f;
-        _playerSantiPanel.GrowHorizontal = GrowDirection.End;
-        _playerSantiPanel.GrowVertical = GrowDirection.Begin;
-        _playerSantiPanel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
-        GetNode<Control>("GameArea").AddChild(_playerSantiPanel);
-
-        // Opponent santi panel — top-left, grows horizontally
-        _opponentSantiPanel = new SantiPanel("OPP SANTI");
-        _opponentSantiPanel.SetAnchorsPreset(LayoutPreset.TopLeft);
-        _opponentSantiPanel.AnchorLeft = 0.01f;
-        _opponentSantiPanel.AnchorTop = 0.01f;
-        _opponentSantiPanel.AnchorRight = 0.5f;
-        _opponentSantiPanel.AnchorBottom = 0.08f;
-        _opponentSantiPanel.GrowHorizontal = GrowDirection.End;
-        _opponentSantiPanel.GrowVertical = GrowDirection.End;
-        _opponentSantiPanel.SizeFlagsHorizontal = SizeFlags.ShrinkBegin;
-        GetNode<Control>("GameArea").AddChild(_opponentSantiPanel);
+        // Santi cards are now rendered inline in the player/opponent hand areas
+        // (no separate panels needed)
     }
 
     private void ConnectSignals()
@@ -165,8 +149,6 @@ public partial class MainGame : Control
         _startButton.Pressed += OnStartPressed;
         _joinButton.Pressed += OnJoinPressed;
         _shopPanel.SantoClicked += OnSantoClicked;
-        _playerSantiPanel.SantoClicked += OnOwnedSantoClicked;
-        _opponentSantiPanel.SantoClicked += OnOpponentSantoClicked;
     }
 
     #endregion
@@ -603,8 +585,10 @@ public partial class MainGame : Control
                 oppCaptured = oppCaptured.Where(c => !tableCodes.Contains(c)).ToList();
             }
              
-            SyncCardGroup(myHand, _playerHand);
-            SyncCardGroup(oppHand, _opponentHand);
+            int playerTotalDisplay = myHand.Count + (myData.Santi?.Count ?? 0);
+            int oppTotalDisplay = oppHand.Count + (oppData.Santi?.Count ?? 0);
+            SyncCardGroup(myHand, _playerHand, playerTotalDisplay);
+            SyncCardGroup(oppHand, _opponentHand, oppTotalDisplay);
             
             // Only sync table if it's NOT a sweep (otherwise we keep cards there for animation)
             if (!isRoundSweep)
@@ -634,9 +618,9 @@ public partial class MainGame : Control
             // Sync shop
             _shopPanel.SyncShop(state.Shop);
 
-            // Sync owned santi
-            _playerSantiPanel.SyncSanti(myData.Santi);
-            _opponentSantiPanel.SyncSanti(oppData.Santi);
+            // Sync owned santi inline with hands
+            SyncSantiInHand(myData.Santi, _playerHand, myHand.Count, playerTotalDisplay, _playerSantiCards, true);
+            SyncSantiInHand(oppData.Santi, _opponentHand, oppHand.Count, oppTotalDisplay, _opponentSantiCards, false);
             
             // Clean up removed cards
             CleanupArea(_playerHand, myHand);
@@ -652,10 +636,11 @@ public partial class MainGame : Control
             CleanupArea(_deckPosition, deckCards);
         }
         
-        private void SyncCardGroup(List<string> codes, Control area)
+        private void SyncCardGroup(List<string> codes, Control area, int totalOverride = -1)
         {
             var center = area.Size / 2;
             int hiddenCount = 0;
+            int displayTotal = totalOverride > 0 ? totalOverride : codes.Count;
             
             // Check if this is a pile area (cards stack in center, don't spread)
             bool isPileArea = area == _playerCapturePile || area == _opponentCapturePile || area == _deckPosition;
@@ -699,7 +684,7 @@ public partial class MainGame : Control
                     card.Modulate = Colors.White;
                     card.ZIndex = 0;
                     
-                    Vector2 targetPos = CalculateCardPosition(i, codes.Count, center);
+                    Vector2 targetPos = CalculateCardPosition(i, displayTotal, center);
                     AnimateCardToPosition(card, area.GlobalPosition + targetPos, i * AnimCardStagger);
                 }
             }
@@ -897,6 +882,13 @@ public partial class MainGame : Control
 
         var card = oppCards[(int)(GD.Randi() % oppCards.Count)];
         card.Setup(new CardData(code));
+        
+        // Check if this card has been mutated and apply the mutation (without animation since it's a reveal)
+        if (_currentMutations.TryGetValue(code, out var mutatedCode))
+        {
+            card.ApplyMutation(mutatedCode, animate: false);
+        }
+        
         card.ShowCardFront();
         _cardRegistry[code] = card;
 
@@ -1068,6 +1060,121 @@ public partial class MainGame : Control
     private void OnPlaySantoRequested(string santoId)
     {
         SendAction($"@{santoId}[]");
+    }
+
+    #endregion
+
+    #region Santi In-Hand Rendering
+
+    /// <summary>
+    /// Render santi cards inline with a hand area, positioned after the regular hand cards.
+    /// Santi cards are kept as separate TextureButton nodes (logically separated from CardUI)
+    /// to avoid interfering with card game animations and input handling.
+    /// </summary>
+    private void SyncSantiInHand(List<ShopItem> items, Control handArea, int handCardCount,
+        int totalDisplay, List<TextureButton> santiCards, bool isPlayer)
+    {
+        items ??= new List<ShopItem>();
+
+        // Update the current items reference for click handling
+        if (isPlayer)
+            _currentPlayerSantiItems = items;
+        else
+            _currentOpponentSantiItems = items;
+
+        // Remove excess santi cards
+        while (santiCards.Count > items.Count)
+        {
+            var btn = santiCards[^1];
+            santiCards.RemoveAt(santiCards.Count - 1);
+            btn.QueueFree();
+        }
+
+        var center = handArea.Size / 2;
+
+        for (int i = 0; i < items.Count; i++)
+        {
+            TextureButton btn;
+            if (i < santiCards.Count)
+            {
+                btn = santiCards[i];
+            }
+            else
+            {
+                btn = CreateSantiCardButton(items[i], isPlayer, i);
+                santiCards.Add(btn);
+                handArea.AddChild(btn);
+            }
+
+            // Update label text in case the item changed
+            var nameLabel = btn.GetNodeOrNull<Label>("NameLabel");
+            if (nameLabel != null)
+            {
+                string name = items[i].Name ?? "?";
+                nameLabel.Text = name.Length > 8 ? name[..8] + "\u2026" : name;
+            }
+
+            // Position at the slot after hand cards
+            int displayIndex = handCardCount + i;
+            Vector2 targetPos = CalculateCardPosition(displayIndex, totalDisplay, center);
+
+            // Add a small gap to visually separate santi from hand cards
+            if (handCardCount > 0)
+                targetPos += new Vector2(SantiGapPixels, 0);
+
+            var globalTarget = handArea.GlobalPosition + targetPos;
+
+            if (btn.GlobalPosition.DistanceTo(globalTarget) >= 5f)
+            {
+                var tween = CreateTween();
+                tween.TweenProperty(btn, "global_position", globalTarget, AnimDealCard)
+                    .SetTrans(Tween.TransitionType.Quad)
+                    .SetEase(Tween.EaseType.Out);
+            }
+        }
+    }
+
+    private TextureButton CreateSantiCardButton(ShopItem item, bool isPlayer, int index)
+    {
+        var btn = new TextureButton
+        {
+            TextureNormal = GD.Load<Texture2D>(CardBackTexturePath),
+            CustomMinimumSize = new Vector2(CardWidth, CardHeight),
+            IgnoreTextureSize = true,
+            StretchMode = TextureButton.StretchModeEnum.KeepAspectCentered,
+            Modulate = new Color(0.7f, 0.9f, 1f, 0.9f) // Blue tint to distinguish santi
+        };
+
+        // Name label at bottom of the card
+        string name = item.Name ?? "?";
+        var label = new Label
+        {
+            Name = "NameLabel",
+            Text = name.Length > 8 ? name[..8] + "\u2026" : name,
+            HorizontalAlignment = HorizontalAlignment.Center,
+            VerticalAlignment = VerticalAlignment.Bottom
+        };
+        label.SetAnchorsAndOffsetsPreset(Control.LayoutPreset.BottomWide);
+        label.AddThemeColorOverride("font_color", new Color(1f, 0.85f, 0.4f));
+        label.AddThemeFontSizeOverride("font_size", 10);
+        btn.AddChild(label);
+
+        int capturedIndex = index;
+        btn.Pressed += () =>
+        {
+            if (isPlayer)
+            {
+                if (capturedIndex < _currentPlayerSantiItems.Count)
+                    OnOwnedSantoClicked(_currentPlayerSantiItems[capturedIndex]);
+            }
+            else
+            {
+                if (capturedIndex < _currentOpponentSantiItems.Count)
+                    OnOpponentSantoClicked(_currentOpponentSantiItems[capturedIndex]);
+            }
+        };
+
+        return btn;
     }
 
     #endregion
