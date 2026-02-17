@@ -12,7 +12,7 @@ public partial class SantoDetailDialog : CanvasLayer
 {
     public enum DialogMode { Buy, Play }
 
-    public event Action<string> BuyRequested;
+    public event Action<ShopItem> BuyRequested;
     public event Action<string> PlayRequested;
 
     private ShopItem _item;
@@ -209,11 +209,14 @@ public partial class SantoDetailDialog : CanvasLayer
 
             actionBtn.Pressed += () =>
             {
-                string id = _item?.Id ?? "";
                 if (_mode == DialogMode.Play)
-                    PlayRequested?.Invoke(id);
+                {
+                    PlayRequested?.Invoke(_item?.Id ?? "");
+                }
                 else
-                    BuyRequested?.Invoke(id);
+                {
+                    BuyRequested?.Invoke(_item);
+                }
                 QueueFree();
             };
             actionBtnContainer.AddChild(actionBtn);

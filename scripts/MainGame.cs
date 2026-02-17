@@ -599,7 +599,7 @@ public partial class MainGame : Control
             SyncCardGroup(myCaptured, _playerCapturePile);
             SyncCardGroup(oppCaptured, _opponentCapturePile);
             SyncCardGroup(deckCards, _deckPosition);
-            
+
             // Update deck count display
             _deckCountLabel.Text = deckCards.Count.ToString();
             
@@ -1036,9 +1036,24 @@ public partial class MainGame : Control
         AddChild(dialog);
     }
 
-    private void OnBuyRequested(string santoId)
+    private void OnBuyRequested(ShopItem item)
     {
-        SendAction($"${santoId}()");
+        // Read captured cards live from the capture pile (using effective/original codes)
+        var capturedCards = GetCardsIn(_playerCapturePile);
+        var capturedCodes = capturedCards
+            .Select(c => c.OriginalCode ?? c.CardData?.ToString())
+            .Where(c => !string.IsNullOrEmpty(c) && c != "X")
+            .ToList();
+
+        // Open the card picker overlay so the player can pay with captured cards
+        var picker = new CardPickerOverlay();
+        picker.Populate(item, capturedCodes, _currentMutations);
+        picker.PurchaseConfirmed += (santoId, cardCodes) =>
+        {
+            var payment = string.Join("+", cardCodes);
+            SendAction($"${santoId}({payment})");
+        };
+        AddChild(picker);
     }
 
     private void OnOwnedSantoClicked(ShopItem item)
