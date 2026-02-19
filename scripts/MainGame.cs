@@ -59,6 +59,10 @@ public partial class MainGame : Control
     private LineEdit _gameIdInput;
     private ShopPanel _shopPanel;
 
+    // Blood blisters
+    private BloodBlister _playerBloodBlister;
+    private BloodBlister _opponentBloodBlister;
+
     // Santi cards rendered inline with player/opponent hands
     private readonly List<TextureButton> _playerSantiCards = new();
     private readonly List<TextureButton> _opponentSantiCards = new();
@@ -76,6 +80,9 @@ public partial class MainGame : Control
     /// Used to detect new mutations for animation purposes
     /// </summary>
     private Dictionary<string, string> _currentMutations = new();
+
+    /// <summary>Cached latest game state for UI queries (e.g. blood info in overlays).</summary>
+    private GameState _lastGameState;
 
     private PlayerIndex _playerIndex;
     private PlayerIndex _opponentIndex;
@@ -135,6 +142,27 @@ public partial class MainGame : Control
         _shopPanel.GrowHorizontal = GrowDirection.End;
         _shopPanel.GrowVertical = GrowDirection.End;
         GetNode<Control>("GameArea").AddChild(_shopPanel);
+
+        // Blood blisters — positioned to the left of each captured area
+        _opponentBloodBlister = new BloodBlister();
+        _opponentBloodBlister.SetAnchorsPreset(LayoutPreset.TopLeft);
+        _opponentBloodBlister.AnchorLeft = 0.835f;
+        _opponentBloodBlister.AnchorTop = 0.05f;
+        _opponentBloodBlister.AnchorRight = 0.865f;
+        _opponentBloodBlister.AnchorBottom = 0.38f;
+        _opponentBloodBlister.GrowHorizontal = GrowDirection.End;
+        _opponentBloodBlister.GrowVertical = GrowDirection.End;
+        GetNode<Control>("GameArea").AddChild(_opponentBloodBlister);
+
+        _playerBloodBlister = new BloodBlister();
+        _playerBloodBlister.SetAnchorsPreset(LayoutPreset.TopLeft);
+        _playerBloodBlister.AnchorLeft = 0.835f;
+        _playerBloodBlister.AnchorTop = 0.62f;
+        _playerBloodBlister.AnchorRight = 0.865f;
+        _playerBloodBlister.AnchorBottom = 0.95f;
+        _playerBloodBlister.GrowHorizontal = GrowDirection.End;
+        _playerBloodBlister.GrowVertical = GrowDirection.End;
+        GetNode<Control>("GameArea").AddChild(_playerBloodBlister);
 
         // Santi cards are now rendered inline in the player/opponent hand areas
         // (no separate panels needed)
@@ -560,6 +588,8 @@ public partial class MainGame : Control
         
         private void SyncGameState(GameState state)
         {
+            _lastGameState = state;
+
             // Sync hands
             var myData = state.Players[PlayerIndexString(_playerIndex)];
             var oppData = state.Players[PlayerIndexString(_opponentIndex)];
@@ -614,6 +644,10 @@ public partial class MainGame : Control
             // Update scores
             _playerScoreLabel.Text = myData.TotalScore.ToString("0");
             _opponentScoreLabel.Text = oppData.TotalScore.ToString("0");
+            
+            // Update blood blisters
+            _playerBloodBlister.SetBlood(myData.Blood, myData.SolidBlood);
+            _opponentBloodBlister.SetBlood(oppData.Blood, oppData.SolidBlood);
             
             // Sync shop
             _shopPanel.SyncShop(state.Shop);
@@ -1030,8 +1064,20 @@ public partial class MainGame : Control
 
     private void OnSantoClicked(ShopItem item)
     {
+        // Check if player already has 3 santi in hand
+        var myState = _lastGameState?.Players.GetValueOrDefault(PlayerIndexString(_playerIndex));
+        int santiCount = myState?.Santi?.Count ?? 0;
+
         var dialog = new SantoDetailDialog();
-        dialog.Populate(item, _isPlayerTurn);
+        if (santiCount >= 3)
+        {
+            dialog.Populate(item, _isPlayerTurn, SantoDetailDialog.DialogMode.Buy,
+                "Hai già 3 santi nella tua mano, usane uno prima di poterne comprare uno nuovo.");
+        }
+        else
+        {
+            dialog.Populate(item, _isPlayerTurn);
+        }
         dialog.BuyRequested += OnBuyRequested;
         AddChild(dialog);
     }
@@ -1046,11 +1092,17 @@ public partial class MainGame : Control
             .ToList();
 
         // Open the card picker overlay so the player can pay with captured cards
+        // Compute available liquid blood for the local player
+        var myState = _lastGameState?.Players.GetValueOrDefault(PlayerIndexString(_playerIndex));
+        int liquidBlood = (myState?.Blood ?? 0) - (myState?.SolidBlood ?? 0);
+
         var picker = new CardPickerOverlay();
-        picker.Populate(item, capturedCodes, _currentMutations);
-        picker.PurchaseConfirmed += (santoId, cardCodes) =>
+        picker.Populate(item, capturedCodes, _currentMutations, liquidBlood);
+        picker.PurchaseConfirmed += (santoId, cardCodes, bloodSpent) =>
         {
             var payment = string.Join("+", cardCodes);
+            // if (bloodSpent > 0)
+            //     payment = payment.Length > 0 ? $"{payment}+B{bloodSpent}" : $"B{bloodSpent}";
             SendAction($"${santoId}({payment})");
         };
         AddChild(picker);

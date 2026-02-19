@@ -23,6 +23,10 @@ public partial class PlayerState
     [JsonPropertyName("blood")]
     [JsonConverter(typeof(DoubleToIntConverter))]
     public int Blood { get; set; }
+    
+    [JsonPropertyName("solidBlood")]
+    [JsonConverter(typeof(DoubleToIntConverter))]
+    public int SolidBlood { get; set; }
 
     [JsonPropertyName("santi")]
     public List<ShopItem> Santi { get; set; } = new();

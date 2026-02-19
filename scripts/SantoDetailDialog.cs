@@ -18,15 +18,21 @@ public partial class SantoDetailDialog : CanvasLayer
     private ShopItem _item;
     private bool _canAct;
     private DialogMode _mode;
+    private string _hintOverride;
 
     /// <summary>
     /// Call before adding to tree.
     /// </summary>
-    public void Populate(ShopItem item, bool isPlayerTurn, DialogMode mode = DialogMode.Buy)
+    public void Populate(ShopItem item, bool isPlayerTurn, DialogMode mode = DialogMode.Buy, string hintOverride = null)
     {
         _item = item;
         _canAct = isPlayerTurn;
         _mode = mode;
+        _hintOverride = hintOverride;
+
+        // If a custom hint is provided, force canAct to false so the hint shows instead of the button
+        if (!string.IsNullOrEmpty(_hintOverride))
+            _canAct = false;
     }
 
     public override void _Ready()
@@ -223,13 +229,17 @@ public partial class SantoDetailDialog : CanvasLayer
         }
         else
         {
-            string hint = _mode == DialogMode.Play
-                ? "Wait for your turn to play."
-                : "Wait for your turn to buy.";
+            string hint = !string.IsNullOrEmpty(_hintOverride)
+                ? _hintOverride
+                : _mode == DialogMode.Play
+                    ? "Wait for your turn to play."
+                    : "Wait for your turn to buy.";
             var hintLabel = new Label
             {
                 Text = hint,
-                HorizontalAlignment = HorizontalAlignment.Center
+                HorizontalAlignment = HorizontalAlignment.Center,
+                AutowrapMode = TextServer.AutowrapMode.WordSmart,
+                CustomMinimumSize = new Vector2(280, 0)
             };
             hintLabel.AddThemeColorOverride("font_color", new Color(0.7f, 0.55f, 0.4f, 0.6f));
             hintLabel.AddThemeFontSizeOverride("font_size", 12);

@@ -22,8 +22,8 @@ public partial class CardPickerOverlay : CanvasLayer
     private const float FanArcDeg = 3f;   // degrees between cards in the fan
     private const float SelectedRaise = 28f;
 
-    /// <summary>Fired with (santoId, list of ORIGINAL card codes used as payment).</summary>
-    public event Action<string, List<string>> PurchaseConfirmed;
+    /// <summary>Fired with (santoId, list of ORIGINAL card codes used as payment, blood units spent).</summary>
+    public event Action<string, List<string>, int> PurchaseConfirmed;
     public event Action Cancelled;
 
     private ShopItem _item;
@@ -31,6 +31,9 @@ public partial class CardPickerOverlay : CanvasLayer
     private int _pageIndex;
     private readonly List<PickerCard> _selectedCards = new();
     private Dictionary<string, string> _mutations = new();
+
+    /// <summary>Available liquid blood (total blood minus solid blood).</summary>
+    private int _availableLiquidBlood;
 
     // UI references (built in code)
     private Control _fanContainer;
@@ -49,10 +52,12 @@ public partial class CardPickerOverlay : CanvasLayer
     };
 
     /// <summary>Call before adding to the tree.</summary>
-    public void Populate(ShopItem item, List<string> capturedCardCodes, Dictionary<string, string> mutations)
+    /// <param name="availableLiquidBlood">Liquid blood available to spend (total blood minus solid blood).</param>
+    public void Populate(ShopItem item, List<string> capturedCardCodes, Dictionary<string, string> mutations, int availableLiquidBlood = 0)
     {
         _item = item;
         _mutations = mutations ?? new Dictionary<string, string>();
+        _availableLiquidBlood = Math.Max(0, availableLiquidBlood);
         // Build list with original + effective (mutated) codes
         _allCards = (capturedCardCodes ?? new List<string>())
             .Where(c => c != "X" && !string.IsNullOrEmpty(c))
@@ -152,7 +157,7 @@ public partial class CardPickerOverlay : CanvasLayer
             Text = "0 / 0",
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
-            CustomMinimumSize = new Vector2(120, 44)
+            CustomMinimumSize = new Vector2(200, 44)
         };
         _counterLabel.AddThemeColorOverride("font_color", new Color(1f, 0.95f, 0.75f, 1f));
         _counterLabel.AddThemeFontSizeOverride("font_size", 20);
@@ -329,21 +334,41 @@ public partial class CardPickerOverlay : CanvasLayer
 
     // ─────────────────── Counter & Buy ───────────────────
 
+    /// <summary>Returns how many blood units would be needed to cover the remaining cost.</summary>
+    private int GetBloodNeeded()
+    {
+        int cost = _item?.Cost ?? 0;
+        int cardValue = GetSelectedValue();
+        int deficit = cost - cardValue;
+        return Math.Max(0, deficit);
+    }
+
     private void UpdateCounter()
     {
         int cost = _item?.Cost ?? 0;
-        int selectedValue = GetSelectedValue();
+        int cardValue = GetSelectedValue();
+        int bloodNeeded = GetBloodNeeded();
+        bool bloodInUse = bloodNeeded > 0;
+        // Cap displayed blood to what the player can actually spend
+        int bloodUsable = Math.Min(bloodNeeded, _availableLiquidBlood);
+        bool enoughBlood = bloodNeeded <= _availableLiquidBlood;
 
-        _counterLabel.Text = $"{selectedValue} / {cost}";
+        // Build display:  cardValue ♠ + bloodUsable 🩸 / cost   (blood part only when needed)
+        if (bloodInUse)
+            _counterLabel.Text = $"{cardValue}\u2660 + {bloodUsable}\U0001FA78 / {cost}";
+        else
+            _counterLabel.Text = $"{cardValue}\u2660 / {cost}";
 
         // Colour feedback
-        if (selectedValue >= cost && cost > 0)
-            _counterLabel.AddThemeColorOverride("font_color", new Color(0.4f, 1f, 0.45f, 1f)); // green
+        if (cardValue >= cost && cost > 0)
+            _counterLabel.AddThemeColorOverride("font_color", new Color(0.4f, 1f, 0.45f, 1f)); // green — fully paid by cards
+        else if (bloodInUse && enoughBlood)
+            _counterLabel.AddThemeColorOverride("font_color", new Color(1f, 0.55f, 0.45f, 1f)); // orange-red — blood will cover the rest
         else
-            _counterLabel.AddThemeColorOverride("font_color", new Color(1f, 0.95f, 0.75f, 1f)); // gold
+            _counterLabel.AddThemeColorOverride("font_color", new Color(1f, 0.95f, 0.75f, 1f)); // gold — not enough
 
-        // Enable buy when selected value meets or exceeds the cost
-        bool canBuy = selectedValue >= cost && cost > 0;
+        // Enable buy when cards + available liquid blood cover the cost
+        bool canBuy = cost > 0 && (cardValue + _availableLiquidBlood) >= cost;
         _buyButton.Disabled = !canBuy;
         _buyButton.Modulate = canBuy ? Colors.White : new Color(0.5f, 0.5f, 0.5f, 0.7f);
     }
@@ -351,10 +376,12 @@ public partial class CardPickerOverlay : CanvasLayer
     private void OnBuyPressed()
     {
         int cost = _item?.Cost ?? 0;
-        if (GetSelectedValue() < cost) return;
-        // Send ORIGINAL codes back (server tracks cards by original code)
+        int cardValue = GetSelectedValue();
+        int bloodNeeded = GetBloodNeeded();
+        if (cardValue + Math.Min(bloodNeeded, _availableLiquidBlood) < cost) return;
+        // Send ORIGINAL codes back (server tracks cards by original code) + blood spent
         var originalCodes = _selectedCards.Select(pc => pc.OriginalCode).ToList();
-        PurchaseConfirmed?.Invoke(_item.Id, originalCodes);
+        PurchaseConfirmed?.Invoke(_item.Id, originalCodes, bloodNeeded);
         QueueFree();
     }
 
