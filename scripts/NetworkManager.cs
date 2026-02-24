@@ -23,8 +23,8 @@ public partial class NetworkManager : Node
     private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
 
     private string _gameId = "";
-    private string _playerSecret = "";
     private PusherClient _pusherClient;
+    private AuthManager _authManager;
 
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -32,11 +32,13 @@ public partial class NetworkManager : Node
         Converters = { new DoubleToIntConverter() }
     };
 
+    /// <summary>Convenience accessor for the player secret (user ID from AuthManager).</summary>
+    private string PlayerSecret => _authManager?.PlayerSecret ?? "";
+
     public override void _Ready()
     {
-        // For testing purposes, get player secret from environment variable
-        _playerSecret = System.Environment.GetEnvironmentVariable("PLAYER_SECRET") ?? "SECRET";
-        GD.Print($"NetworkManager: Player secret from env: {_playerSecret}");
+        _authManager = GetNode<AuthManager>("/root/AuthManager");
+        GD.Print($"NetworkManager: Using AuthManager, logged in: {_authManager.IsLoggedIn}");
 
         InitializeWebSocket();
     }
@@ -54,7 +56,7 @@ public partial class NetworkManager : Node
             _gameId = gameIdProp.GetString();
             GD.Print($"NetworkManager: Game created with ID: {_gameId}");
 
-            _pusherClient.Subscribe(_playerSecret + "_games");
+            _pusherClient.Subscribe(PlayerSecret + "_games");
             await FetchGameState();
         }
         else
@@ -74,7 +76,7 @@ public partial class NetworkManager : Node
 
         if (data.ValueKind != JsonValueKind.Undefined)
         {
-            _pusherClient.Subscribe(_playerSecret + "_games");
+            _pusherClient.Subscribe(PlayerSecret + "_games");
             await FetchGameState();
         }
         else
@@ -136,7 +138,8 @@ public partial class NetworkManager : Node
         {
             "Accept: application/json",
             "Content-Type: application/json",
-            $"player_secret: {_playerSecret}"
+            $"player_secret: {PlayerSecret}",
+            $"Authorization: Bearer {_authManager?.Token ?? ""}"
         };
         string jsonBody = body != null ? JsonSerializer.Serialize(body, _jsonOptions) : "";
 

@@ -59,6 +59,18 @@ public partial class MainGame : Control
     private LineEdit _gameIdInput;
     private ShopPanel _shopPanel;
 
+    // Register panel
+    private Panel _registerPanel;
+    private LineEdit _usernameInput;
+    private Button _registerButton;
+    private Label _registerError;
+
+    // Logout
+    private Button _logoutButton;
+
+    // Auth
+    private AuthManager _authManager;
+
     // Blood blisters
     private BloodBlister _playerBloodBlister;
     private BloodBlister _opponentBloodBlister;
@@ -132,6 +144,18 @@ public partial class MainGame : Control
         _joinButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
         _gameIdInput = GetNode<LineEdit>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameLineEdit");
 
+        // Register panel
+        _registerPanel = GetNode<Panel>("UI/RegisterPanel");
+        _usernameInput = GetNode<LineEdit>("UI/RegisterPanel/VBoxContainer/UsernameInput");
+        _registerButton = GetNode<Button>("UI/RegisterPanel/VBoxContainer/RegisterButton");
+        _registerError = GetNode<Label>("UI/RegisterPanel/VBoxContainer/RegisterError");
+
+        // Logout button
+        _logoutButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/LogoutButton");
+
+        // Auth manager
+        _authManager = GetNode<AuthManager>("/root/AuthManager");
+
         // Shop panel — positioned left of the deck, centered vertically
         _shopPanel = new ShopPanel();
         _shopPanel.SetAnchorsPreset(LayoutPreset.TopLeft);
@@ -177,11 +201,66 @@ public partial class MainGame : Control
         _startButton.Pressed += OnStartPressed;
         _joinButton.Pressed += OnJoinPressed;
         _shopPanel.SantoClicked += OnSantoClicked;
+
+        // Auth
+        _registerButton.Pressed += OnRegisterPressed;
+        _logoutButton.Pressed += OnLogoutPressed;
+        _authManager.RegisterSucceeded += OnRegisterSucceeded;
+        _authManager.RegisterFailed += OnRegisterFailed;
+
+        // Show correct panel on startup
+        if (_authManager.IsLoggedIn)
+        {
+            _registerPanel.Hide();
+            _menuPanel.Show();
+        }
+        else
+        {
+            _registerPanel.Show();
+            _menuPanel.Hide();
+        }
     }
 
     #endregion
 
     #region UI Event Handlers
+
+    private void OnRegisterPressed()
+    {
+        var username = _usernameInput.Text.Trim();
+        if (string.IsNullOrEmpty(username))
+        {
+            _registerError.Text = "Please enter a username.";
+            return;
+        }
+
+        _registerError.Text = "";
+        _registerButton.Disabled = true;
+        _authManager.Register(username);
+    }
+
+    private void OnRegisterSucceeded(string username)
+    {
+        _registerButton.Disabled = false;
+        _registerPanel.Hide();
+        _menuPanel.Show();
+        GD.Print($"MainGame: Registered as '{username}'");
+    }
+
+    private void OnRegisterFailed(string errorMessage)
+    {
+        _registerButton.Disabled = false;
+        _registerError.Text = errorMessage;
+    }
+
+    private void OnLogoutPressed()
+    {
+        _authManager.Logout();
+        _menuPanel.Hide();
+        _registerPanel.Show();
+        _registerError.Text = "";
+        _usernameInput.Text = "";
+    }
 
     private void OnStartPressed()
     {
