@@ -13,7 +13,6 @@ public partial class AuthManager : Node
 {
     private const string ConfigPath = "user://auth.cfg";
     private const string ConfigSection = "auth";
-    private const string BaseUrl = "http://100.76.114.126:8000/api";
 
     public int UserId { get; private set; }
     public string Token { get; private set; }
@@ -56,7 +55,7 @@ public partial class AuthManager : Node
         };
 
         var body = JsonSerializer.Serialize(new { username });
-        req.Request(BaseUrl + "/auth/register", headers, HttpClient.Method.Post, body);
+        req.Request(Constants.BaseUrl + "/auth/register", headers, HttpClient.Method.Post, body);
 
         var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
         req.QueueFree();

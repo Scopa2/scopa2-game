@@ -56,8 +56,15 @@ public partial class MainGame : Control
     private Label _waitingLabel;
     private Button _startButton;
     private Button _joinButton;
+    private Button _findMatchButton;
     private LineEdit _gameIdInput;
     private ShopPanel _shopPanel;
+
+    // Matchmaking UI
+    private Panel _matchmakingPanel;
+    private Label _queueSizeLabel;
+    private Button _cancelSearchButton;
+    private MatchmakingManager _matchmaking;
 
     // Register panel
     private Panel _registerPanel;
@@ -141,8 +148,17 @@ public partial class MainGame : Control
         _opponentScoreLabel = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/ScoreRow/OpponentScoreLabel");
         _waitingLabel = GetNode<Label>("UI/WaitingLabel");
         _startButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/StartButton");
+        _findMatchButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/FindMatchButton");
         _joinButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
         _gameIdInput = GetNode<LineEdit>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameLineEdit");
+
+        // Matchmaking UI
+        _matchmakingPanel = GetNode<Panel>("UI/MatchmakingPanel");
+        _queueSizeLabel = GetNode<Label>("UI/MatchmakingPanel/VBoxContainer/QueueSizeLabel");
+        _cancelSearchButton = GetNode<Button>("UI/MatchmakingPanel/VBoxContainer/CancelButton");
+        
+        _matchmaking = new MatchmakingManager();
+        AddChild(_matchmaking);
 
         // Register panel
         _registerPanel = GetNode<Panel>("UI/RegisterPanel");
@@ -198,9 +214,18 @@ public partial class MainGame : Control
         _network.RoundFinished += OnRoundFinished;
         _network.GameFinished += OnGameFinished;
         _network.NetworkError += OnNetworkError;
+        _network.MatchFound += OnMatchFound;
+        
         _startButton.Pressed += OnStartPressed;
         _joinButton.Pressed += OnJoinPressed;
+        _findMatchButton.Pressed += OnFindMatchPressed;
+        _cancelSearchButton.Pressed += OnCancelSearchPressed;
         _shopPanel.SantoClicked += OnSantoClicked;
+        
+        _matchmaking.QueueJoined += OnQueueJoined;
+        _matchmaking.QueueLeft += OnQueueLeft;
+        _matchmaking.StatusUpdated += OnQueueStatusUpdated;
+        _matchmaking.QueueError += OnQueueError;
 
         // Auth
         _registerButton.Pressed += OnRegisterPressed;
@@ -281,6 +306,59 @@ public partial class MainGame : Control
         _waitingLabel.Show();
         _playerIndex = PlayerIndex.P2;
         _opponentIndex = PlayerIndex.P1;
+    }
+
+    private void OnFindMatchPressed()
+    {
+        _network.SubscribeToPrivateChannel(); // Ensure we can receive match_found WS event
+        _matchmaking.JoinQueue();
+        _findMatchButton.Disabled = true;
+    }
+
+    private void OnCancelSearchPressed()
+    {
+        _matchmaking.LeaveQueue();
+    }
+
+    private void OnQueueJoined()
+    {
+        _findMatchButton.Disabled = false;
+        _menuPanel.Hide();
+        _matchmakingPanel.Show();
+        _queueSizeLabel.Text = "Players in queue: ...";
+        _playerIndex = PlayerIndex.P1; // default, will autocorrect if needed
+        _opponentIndex = PlayerIndex.P2;
+    }
+
+    private void OnQueueLeft()
+    {
+        _matchmakingPanel.Hide();
+        _menuPanel.Show();
+    }
+
+    private void OnQueueStatusUpdated(bool queued, int queueSize)
+    {
+        _queueSizeLabel.Text = $"Players in queue: {queueSize}";
+    }
+
+    private void OnQueueError(string error)
+    {
+        _findMatchButton.Disabled = false;
+        GD.PrintErr($"Matchmaking error: {error}");
+    }
+
+    private void OnMatchFound(string gameId)
+    {
+        if (_matchmaking.IsSearching)
+        {
+            _matchmaking.OnMatchFound();
+        }
+        
+        _matchmakingPanel.Hide();
+        _menuPanel.Hide();
+        _waitingLabel.Show();
+
+        _network.ConnectToMatch(gameId);
     }
 
     #endregion
@@ -423,6 +501,20 @@ public partial class MainGame : Control
         
         private async void OnGameStateReceived(GameState state)
         {
+            // If we are coming from matchmaking, we might not know our player index reliably.
+            // But we can infer it: if p1's hand contains "X" (hidden card), we are definitely p2.
+            // since we can only see our own hand openly.
+            if (_playerIndex == PlayerIndex.P1 && state.Players.ContainsKey("p1"))
+            {
+                var p1Hand = state.Players["p1"].Hand;
+                if (p1Hand != null && p1Hand.Count > 0 && p1Hand[0] == "X")
+                {
+                    _playerIndex = PlayerIndex.P2;
+                    _opponentIndex = PlayerIndex.P1;
+                    GD.Print("MainGame: Auto-detected role as P2 based on hidden cards in P1's hand");
+                }
+            }
+
             _activeAnimationTask = ProcessGameState(state);
             await _activeAnimationTask;
         }

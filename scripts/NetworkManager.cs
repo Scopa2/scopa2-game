@@ -14,12 +14,11 @@ public partial class NetworkManager : Node
     public event Action<GameState> StateUpdated;
     public event Action<RoundFinished> RoundFinished;
     public event Action<GameFinished> GameFinished;
+    public event Action<string> MatchFound;
 
     [Signal]
     public delegate void NetworkErrorEventHandler(string errorMessage);
 
-    //private const string BaseUrl = "http://100.76.114.126:8000/api";
-    private const string BaseUrl = "http://100.76.114.126:8000/api";
     private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
 
     private string _gameId = "";
@@ -45,6 +44,14 @@ public partial class NetworkManager : Node
 
     // --- GAME ACTIONS ---
 
+    public void SubscribeToPrivateChannel()
+    {
+        if (_pusherClient != null && !string.IsNullOrEmpty(PlayerSecret))
+        {
+            _pusherClient.Subscribe(PlayerSecret + "_games");
+        }
+    }
+
     public async void StartGame()
     {
         GD.Print("NetworkManager: Starting new game...");
@@ -56,13 +63,24 @@ public partial class NetworkManager : Node
             _gameId = gameIdProp.GetString();
             GD.Print($"NetworkManager: Game created with ID: {_gameId}");
 
-            _pusherClient.Subscribe(PlayerSecret + "_games");
+            SubscribeToPrivateChannel();
             await FetchGameState();
         }
         else
         {
             EmitSignal(SignalName.NetworkError, "Failed to start game. Please try again.");
         }
+    }
+
+    public async void ConnectToMatch(string gameId)
+    {
+        if (string.IsNullOrEmpty(gameId)) return;
+
+        _gameId = gameId;
+        GD.Print($"NetworkManager: Connecting to match {_gameId}");
+
+        SubscribeToPrivateChannel();
+        await FetchGameState();
     }
 
     public async void JoinGame(string gameId)
@@ -76,7 +94,7 @@ public partial class NetworkManager : Node
 
         if (data.ValueKind != JsonValueKind.Undefined)
         {
-            _pusherClient.Subscribe(PlayerSecret + "_games");
+            SubscribeToPrivateChannel();
             await FetchGameState();
         }
         else
@@ -144,7 +162,7 @@ public partial class NetworkManager : Node
         string jsonBody = body != null ? JsonSerializer.Serialize(body, _jsonOptions) : "";
 
         // 3. Send Request
-        req.Request(BaseUrl + endpoint, headers, method, jsonBody);
+        req.Request(Constants.BaseUrl + endpoint, headers, method, jsonBody);
 
         // 4. Wait for response using Godot's ToSignal (Async/Await)
         var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
@@ -247,6 +265,19 @@ public partial class NetworkManager : Node
                         GameFinished?.Invoke(finished);
                     }
 
+                    break;
+                }
+                case "match_found":
+                {
+                    string matchGameId = null;
+                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("game_id", out var gameIdProp))
+                    {
+                        matchGameId = gameIdProp.GetString();
+                    }
+                    if (matchGameId != null)
+                    {
+                        MatchFound?.Invoke(matchGameId);
+                    }
                     break;
                 }
             }
