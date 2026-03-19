@@ -19,7 +19,7 @@ public partial class NetworkManager : Node
     [Signal]
     public delegate void NetworkErrorEventHandler(string errorMessage);
 
-    private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
+    private const string ReverbUrl = "ws://murkrow.macbook:8080/ws/app/app-key?protocol=7&client=Godot&version=1.0.0";
 
     private string _gameId = "";
     private PusherClient _pusherClient;
