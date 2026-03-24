@@ -11,29 +11,19 @@ namespace Scopa2Game.Scripts;
 /// </summary>
 public partial class MatchmakingManager : Node
 {
-    private const float PollIntervalSeconds = 3.0f;
-
     private AuthManager _authManager;
-    private Timer _pollTimer;
     private bool _isSearching;
 
     // Events
     public event Action QueueJoined;
     public event Action QueueLeft;
     public event Action<string> QueueError;
-    public event Action<bool, int> StatusUpdated; // (isQueued, queueSize)
 
     public bool IsSearching => _isSearching;
 
     public override void _Ready()
     {
         _authManager = GetNode<AuthManager>("/root/AuthManager");
-
-        _pollTimer = new Timer();
-        _pollTimer.WaitTime = PollIntervalSeconds;
-        _pollTimer.OneShot = false;
-        _pollTimer.Timeout += PollStatus;
-        AddChild(_pollTimer);
     }
 
     /// <summary>
@@ -59,7 +49,6 @@ public partial class MatchmakingManager : Node
                 if (status == "queued" || status == "already_queued")
                 {
                     _isSearching = true;
-                    _pollTimer.Start();
                     QueueJoined?.Invoke();
                     GD.Print($"MatchmakingManager: Joined queue (status: {status})");
                 }
@@ -87,7 +76,6 @@ public partial class MatchmakingManager : Node
     public async void LeaveQueue()
     {
         _isSearching = false;
-        _pollTimer.Stop();
 
         var (responseCode, json) = await SendRequest("/matchmaking/leave", HttpClient.Method.Post);
 
@@ -113,48 +101,13 @@ public partial class MatchmakingManager : Node
     }
 
     /// <summary>
-    /// Poll the matchmaking status. Called by timer while searching.
-    /// </summary>
-    private async void PollStatus()
-    {
-        if (!_isSearching) return;
-
-        var (responseCode, json) = await SendRequest("/matchmaking/status", HttpClient.Method.Get);
-
-        if (responseCode >= 200 && responseCode < 300)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(json);
-                var root = doc.RootElement;
-                bool queued = root.GetProperty("queued").GetBoolean();
-                int queueSize = root.GetProperty("queue_size").GetInt32();
-
-                StatusUpdated?.Invoke(queued, queueSize);
-
-                if (!queued && _isSearching)
-                {
-                    // Server removed us from queue (could mean match found or timeout)
-                    _isSearching = false;
-                    _pollTimer.Stop();
-                }
-            }
-            catch (Exception ex)
-            {
-                GD.PrintErr($"MatchmakingManager: Failed to parse status response: {ex.Message}");
-            }
-        }
-    }
-
-    /// <summary>
     /// Called when a match is found (from NetworkManager detecting the match_found WS event).
-    /// Stops polling and resets state.
+    /// Resets state.
     /// </summary>
     public void OnMatchFound()
     {
         _isSearching = false;
-        _pollTimer.Stop();
-        GD.Print("MatchmakingManager: Match found, stopped polling.");
+        GD.Print("MatchmakingManager: Match found.");
     }
 
     /// <summary>

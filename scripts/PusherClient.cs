@@ -27,6 +27,8 @@ public partial class PusherClient : Node
     private State _currentState = State.Disconnected;
     private Timer _pingTimer;
     private string _socketId;
+    
+    public string SocketId => _socketId;
 
     public override void _Ready()
     {
@@ -76,7 +78,7 @@ public partial class PusherClient : Node
         }
     }
 
-    public void Subscribe(string channelName)
+    public void Subscribe(string channelName, string auth = null)
     {
         if (_currentState != State.Connected)
         {
@@ -84,13 +86,19 @@ public partial class PusherClient : Node
             return;
         }
 
+        var channelData = new Godot.Collections.Dictionary { { "channel", channelName } };
+        if (!string.IsNullOrEmpty(auth))
+        {
+            channelData["auth"] = auth;
+        }
+
         var payload = new Godot.Collections.Dictionary
         {
             { "event", "pusher:subscribe" },
-            { "data", new Godot.Collections.Dictionary { { "channel", channelName } } }
+            { "data", channelData }
         };
         SendJson(payload);
-        GD.Print($"PusherClient: Subscribed to channel '{channelName}'");
+        GD.Print($"PusherClient: Subscribed to channel '{channelName}' (auth: {!string.IsNullOrEmpty(auth)})");
     }
 
     private void SendJson(Godot.Collections.Dictionary data)
@@ -129,7 +137,7 @@ public partial class PusherClient : Node
                 break;
             default:
                 var dataField = message.ContainsKey("data") ? message["data"] : default;
-                Variant dataPayload = new Variant();
+                Variant dataPayload;
 
                 if (dataField.VariantType == Variant.Type.String)
                 {

@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using Godot;
 using System.Text;
 using System.Threading.Tasks;
@@ -44,11 +45,80 @@ public partial class NetworkManager : Node
 
     // --- GAME ACTIONS ---
 
-    public void SubscribeToPrivateChannel()
+    public async void SubscribeToGameChannel()
+    {
+        if (_pusherClient != null && !string.IsNullOrEmpty(_gameId))
+        {
+            string channelName = "game_" + _gameId;
+            await AuthenticateAndSubscribe(channelName);
+        }
+    }
+
+    public async void SubscribeToMatchmakingChannel()
     {
         if (_pusherClient != null && !string.IsNullOrEmpty(PlayerSecret))
         {
-            _pusherClient.Subscribe(PlayerSecret + "_games");
+            string channelName = PlayerSecret + "_matchmaking_result";
+            await AuthenticateAndSubscribe(channelName);
+        }
+    }
+
+    private async Task AuthenticateAndSubscribe(string channelName)
+    {
+        if (_pusherClient.SocketId == null)
+        {
+            GD.PrintErr("NetworkManager: Cannot authenticate, socket_id is null.");
+            return;
+        }
+
+        var req = new HttpRequest();
+        AddChild(req);
+
+        string[] headers =
+        {
+            "Accept: application/json",
+            "Content-Type: application/x-www-form-urlencoded",
+            $"Authorization: Bearer {_authManager?.Token ?? ""}"
+        };
+
+        string body = $"socket_id={_pusherClient.SocketId}&channel_name={channelName}";
+        
+        string authUrl = Constants.BaseUrl.Replace("/api", "") + "/broadcasting/auth";
+
+        req.Request(authUrl, headers, HttpClient.Method.Post, body);
+
+        var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
+        req.QueueFree();
+
+        long responseCode = result[1].AsInt64();
+        byte[] responseBody = result[3].AsByteArray();
+
+        if (responseCode < 200 || responseCode >= 300)
+        {
+            GD.PrintErr(
+                $"NetworkManager: Auth API Error {responseCode} at {authUrl}. Response: {Encoding.UTF8.GetString(responseBody)}");
+            return;
+        }
+
+        string jsonString = Encoding.UTF8.GetString(responseBody);
+
+        try
+        {
+            var authResponse = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonString, _jsonOptions);
+            if (authResponse != null && authResponse.TryGetValue("auth", out var authHashElement))
+            {
+                string authHash = authHashElement.GetString();
+                GD.Print($"NetworkManager: Authenticated and subscribed to {channelName} with hash {authHash}");
+                _pusherClient.Subscribe(channelName, authHash);
+            }
+            else
+            {
+                GD.PrintErr($"NetworkManager: Invalid auth response for channel {channelName}: {jsonString}");
+            }
+        }
+        catch (JsonException ex)
+        {
+            GD.PrintErr($"NetworkManager: Auth JSON Parse Error: {ex.Message}");
         }
     }
 
@@ -63,7 +133,7 @@ public partial class NetworkManager : Node
             _gameId = gameIdProp.GetString();
             GD.Print($"NetworkManager: Game created with ID: {_gameId}");
 
-            SubscribeToPrivateChannel();
+            SubscribeToGameChannel();
             await FetchGameState();
         }
         else
@@ -79,7 +149,7 @@ public partial class NetworkManager : Node
         _gameId = gameId;
         GD.Print($"NetworkManager: Connecting to match {_gameId}");
 
-        SubscribeToPrivateChannel();
+        SubscribeToGameChannel();
         await FetchGameState();
     }
 
@@ -94,7 +164,7 @@ public partial class NetworkManager : Node
 
         if (data.ValueKind != JsonValueKind.Undefined)
         {
-            SubscribeToPrivateChannel();
+            SubscribeToGameChannel();
             await FetchGameState();
         }
         else

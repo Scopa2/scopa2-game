@@ -224,7 +224,6 @@ public partial class MainGame : Control
         
         _matchmaking.QueueJoined += OnQueueJoined;
         _matchmaking.QueueLeft += OnQueueLeft;
-        _matchmaking.StatusUpdated += OnQueueStatusUpdated;
         _matchmaking.QueueError += OnQueueError;
 
         // Auth
@@ -310,7 +309,7 @@ public partial class MainGame : Control
 
     private void OnFindMatchPressed()
     {
-        _network.SubscribeToPrivateChannel(); // Ensure we can receive match_found WS event
+        _network.SubscribeToMatchmakingChannel(); // Ensure we can receive match_found WS event
         _matchmaking.JoinQueue();
         _findMatchButton.Disabled = true;
     }
@@ -334,11 +333,6 @@ public partial class MainGame : Control
     {
         _matchmakingPanel.Hide();
         _menuPanel.Show();
-    }
-
-    private void OnQueueStatusUpdated(bool queued, int queueSize)
-    {
-        _queueSizeLabel.Text = $"Players in queue: {queueSize}";
     }
 
     private void OnQueueError(string error)
@@ -986,7 +980,7 @@ public partial class MainGame : Control
             }
         }
         
-        #endregion
+    #endregion
         
     #region Mutations
     
@@ -1504,3 +1498,4 @@ public partial class MainGame : Control
 
     #endregion
 }
+
