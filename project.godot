@@ -22,6 +22,7 @@ config/icon="res://icon.svg"
 [autoload]
 
 NetworkManager="*uid://j3saca7uciq4"
+AuthManager="*res://scripts/AuthManager.cs"
 
 [display]
 

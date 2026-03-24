@@ -14,17 +14,16 @@ public partial class NetworkManager : Node
     public event Action<GameState> StateUpdated;
     public event Action<RoundFinished> RoundFinished;
     public event Action<GameFinished> GameFinished;
+    public event Action<string> MatchFound;
 
     [Signal]
     public delegate void NetworkErrorEventHandler(string errorMessage);
 
-    //private const string BaseUrl = "http://100.76.114.126:8000/api";
-    private const string BaseUrl = "http://100.76.114.126:8000/api";
-    private const string ReverbUrl = "ws://100.76.114.126:6001/app/app-key?protocol=7&client=Godot&version=1.0.0";
+    private const string ReverbUrl = "ws://murkrow.macbook:8080/ws/app/app-key?protocol=7&client=Godot&version=1.0.0";
 
     private string _gameId = "";
-    private string _playerSecret = "";
     private PusherClient _pusherClient;
+    private AuthManager _authManager;
 
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -32,16 +31,26 @@ public partial class NetworkManager : Node
         Converters = { new DoubleToIntConverter() }
     };
 
+    /// <summary>Convenience accessor for the player secret (user ID from AuthManager).</summary>
+    private string PlayerSecret => _authManager?.PlayerSecret ?? "";
+
     public override void _Ready()
     {
-        // For testing purposes, get player secret from environment variable
-        _playerSecret = System.Environment.GetEnvironmentVariable("PLAYER_SECRET") ?? "SECRET";
-        GD.Print($"NetworkManager: Player secret from env: {_playerSecret}");
+        _authManager = GetNode<AuthManager>("/root/AuthManager");
+        GD.Print($"NetworkManager: Using AuthManager, logged in: {_authManager.IsLoggedIn}");
 
         InitializeWebSocket();
     }
 
     // --- GAME ACTIONS ---
+
+    public void SubscribeToPrivateChannel()
+    {
+        if (_pusherClient != null && !string.IsNullOrEmpty(PlayerSecret))
+        {
+            _pusherClient.Subscribe(PlayerSecret + "_games");
+        }
+    }
 
     public async void StartGame()
     {
@@ -54,13 +63,24 @@ public partial class NetworkManager : Node
             _gameId = gameIdProp.GetString();
             GD.Print($"NetworkManager: Game created with ID: {_gameId}");
 
-            _pusherClient.Subscribe(_playerSecret + "_games");
+            SubscribeToPrivateChannel();
             await FetchGameState();
         }
         else
         {
             EmitSignal(SignalName.NetworkError, "Failed to start game. Please try again.");
         }
+    }
+
+    public async void ConnectToMatch(string gameId)
+    {
+        if (string.IsNullOrEmpty(gameId)) return;
+
+        _gameId = gameId;
+        GD.Print($"NetworkManager: Connecting to match {_gameId}");
+
+        SubscribeToPrivateChannel();
+        await FetchGameState();
     }
 
     public async void JoinGame(string gameId)
@@ -74,7 +94,7 @@ public partial class NetworkManager : Node
 
         if (data.ValueKind != JsonValueKind.Undefined)
         {
-            _pusherClient.Subscribe(_playerSecret + "_games");
+            SubscribeToPrivateChannel();
             await FetchGameState();
         }
         else
@@ -136,12 +156,13 @@ public partial class NetworkManager : Node
         {
             "Accept: application/json",
             "Content-Type: application/json",
-            $"player_secret: {_playerSecret}"
+            $"player_secret: {PlayerSecret}",
+            $"Authorization: Bearer {_authManager?.Token ?? ""}"
         };
         string jsonBody = body != null ? JsonSerializer.Serialize(body, _jsonOptions) : "";
 
         // 3. Send Request
-        req.Request(BaseUrl + endpoint, headers, method, jsonBody);
+        req.Request(Constants.BaseUrl + endpoint, headers, method, jsonBody);
 
         // 4. Wait for response using Godot's ToSignal (Async/Await)
         var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
@@ -244,6 +265,19 @@ public partial class NetworkManager : Node
                         GameFinished?.Invoke(finished);
                     }
 
+                    break;
+                }
+                case "match_found":
+                {
+                    string matchGameId = null;
+                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("game_id", out var gameIdProp))
+                    {
+                        matchGameId = gameIdProp.GetString();
+                    }
+                    if (matchGameId != null)
+                    {
+                        MatchFound?.Invoke(matchGameId);
+                    }
                     break;
                 }
             }
