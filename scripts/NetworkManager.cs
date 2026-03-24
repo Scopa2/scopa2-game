@@ -49,7 +49,7 @@ public partial class NetworkManager : Node
     {
         if (_pusherClient != null && !string.IsNullOrEmpty(_gameId))
         {
-            string channelName = "game_" + _gameId;
+            string channelName = "private-" + "game_" + _gameId;
             await AuthenticateAndSubscribe(channelName);
         }
     }
@@ -58,7 +58,7 @@ public partial class NetworkManager : Node
     {
         if (_pusherClient != null && !string.IsNullOrEmpty(PlayerSecret))
         {
-            string channelName = PlayerSecret + "_matchmaking_result";
+            string channelName = "private-" + PlayerSecret + "_matchmaking_result";
             await AuthenticateAndSubscribe(channelName);
         }
     }
