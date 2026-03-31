@@ -31,6 +31,12 @@ public partial class NetworkManager : Node
     private ulong _lastFailoverTime = 0;
     private const ulong FailoverCooldownMs = 5000; // 5 seconds
     
+    // WebSocket auto-reconnection
+    private bool _isReconnecting = false;
+    private int _reconnectAttempts = 0;
+    private const int MaxReconnectAttempts = 5;
+    private const float ReconnectDelaySeconds = 2.0f;
+    
     // Failure detection & server priority
     private int _consecutiveFailures = 0;
     private const int FailureThreshold = 3;
@@ -507,6 +513,7 @@ public partial class NetworkManager : Node
     /// <summary>
     /// Reconnects the WebSocket to the current selected endpoint.
     /// Resubscribes to all active channels.
+    /// Used during server failover.
     /// </summary>
     private async Task<bool> ReconnectWebSocket()
     {
@@ -517,6 +524,9 @@ public partial class NetworkManager : Node
         {
             _pusherClient.QueueFree();
         }
+
+        // Reset reconnect attempts for new server
+        _reconnectAttempts = 0;
 
         // Create new WebSocket connection
         InitializeWebSocket();
@@ -559,7 +569,112 @@ public partial class NetworkManager : Node
         _pusherClient = new PusherClient();
         AddChild(_pusherClient);
         _pusherClient.EventReceived += OnPusherEventReceived;
+        _pusherClient.Disconnected += OnWebSocketDisconnected;
+        _pusherClient.Connected += OnWebSocketConnected;
         _pusherClient.ConnectToServer(_selectedEndpoint.WsUrl);
+    }
+
+    private void OnWebSocketConnected()
+    {
+        GD.Print("NetworkManager: WebSocket connected successfully.");
+        _reconnectAttempts = 0; // Reset reconnect counter on successful connection
+    }
+
+    private async void OnWebSocketDisconnected()
+    {
+        GD.Print($"NetworkManager: WebSocket disconnected. Reconnect attempts: {_reconnectAttempts}/{MaxReconnectAttempts}");
+        
+        // Don't auto-reconnect if we're in the middle of a failover
+        if (_isFailingOver)
+        {
+            GD.Print("NetworkManager: Skipping auto-reconnect (failover in progress).");
+            return;
+        }
+
+        // Don't reconnect if already reconnecting
+        if (_isReconnecting)
+        {
+            GD.Print("NetworkManager: Already attempting to reconnect.");
+            return;
+        }
+
+        _isReconnecting = true;
+
+        // Try to reconnect with exponential backoff
+        while (_reconnectAttempts < MaxReconnectAttempts)
+        {
+            _reconnectAttempts++;
+            float delay = ReconnectDelaySeconds * _reconnectAttempts;
+            GD.Print($"NetworkManager: Attempting WebSocket reconnection #{_reconnectAttempts} in {delay}s...");
+            
+            await Task.Delay((int)(delay * 1000));
+
+            bool success = await AttemptWebSocketReconnect();
+            
+            if (success)
+            {
+                _isReconnecting = false;
+                return;
+            }
+        }
+
+        // Max attempts reached
+        GD.PrintErr("NetworkManager: Max WebSocket reconnection attempts reached. Connection lost.");
+        _isReconnecting = false;
+        
+        // Optionally notify user
+        EmitSignal(SignalName.NetworkError, "Connection to server lost. Please restart the game.");
+    }
+
+    private async Task<bool> AttemptWebSocketReconnect()
+    {
+        try
+        {
+            GD.Print($"NetworkManager: Reconnecting to {_selectedEndpoint.Region}...");
+            
+            // Disconnect old WebSocket if still around
+            if (_pusherClient != null)
+            {
+                _pusherClient.QueueFree();
+            }
+
+            // Create new connection
+            InitializeWebSocket();
+
+            // Wait for connection (timeout after 10 seconds)
+            var startTime = Time.GetTicksMsec();
+            const long ConnectionTimeout = 10000;
+
+            while (_pusherClient.SocketId == null && (Time.GetTicksMsec() - startTime) < ConnectionTimeout)
+            {
+                await Task.Delay(100);
+            }
+
+            if (_pusherClient.SocketId == null)
+            {
+                GD.PrintErr("NetworkManager: Reconnection timeout.");
+                return false;
+            }
+
+            GD.Print($"NetworkManager: Reconnected! Resubscribing to {_activeChannels.Count} channels...");
+
+            // Resubscribe to all active channels
+            var channelsToResubscribe = new List<string>(_activeChannels);
+            _activeChannels.Clear();
+
+            foreach (var channel in channelsToResubscribe)
+            {
+                await AuthenticateAndSubscribe(channel);
+            }
+
+            GD.Print("NetworkManager: WebSocket reconnection successful!");
+            return true;
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"NetworkManager: Reconnection failed with exception: {ex.Message}");
+            return false;
+        }
     }
 
     private void OnPusherEventReceived(string eventName, Variant data)
