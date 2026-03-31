@@ -38,7 +38,7 @@ public partial class EndpointSelector : Node
 
         var best = reachableMetrics.OrderBy(m => m.Score).First();
         
-        GD.Print($"EndpointSelector: Selected {best.Endpoint.Region} ({best.Endpoint.Host}:{best.Endpoint.Port})");
+        GD.Print($"EndpointSelector: Selected {best.Endpoint.Region} ({best.Endpoint.Host})");
         GD.Print($"  - Average Ping: {best.AveragePingMs:F2}ms");
         GD.Print($"  - Packet Loss: {best.PacketLoss:F2}%");
         GD.Print($"  - Score: {best.Score:F2}");
@@ -102,7 +102,7 @@ public partial class EndpointSelector : Node
 
         var stopwatch = Stopwatch.StartNew();
         
-        string pingUrl = $"http://{endpoint.Host}:{endpoint.Port}/api/health";
+        string pingUrl = $"http://{endpoint.Host}/api/health";
         
         string[] headers = { "Accept: application/json" };
         req.Request(pingUrl, headers, HttpClient.Method.Get);
