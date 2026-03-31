@@ -54,6 +54,8 @@ public partial class MainGame : Control
     private Label _playerScoreLabel;
     private Label _opponentScoreLabel;
     private Label _waitingLabel;
+    private Label _serverLabel;
+    private ServerSwitchDialog _serverSwitchDialog;
     private Button _startButton;
     private Button _joinButton;
     private Button _findMatchButton;
@@ -147,6 +149,7 @@ public partial class MainGame : Control
         _playerScoreLabel = GetNode<Label>("GameArea/PlayerCapturedArea/VBox/ScoreRow/PlayerScoreLabel");
         _opponentScoreLabel = GetNode<Label>("GameArea/OpponentCapturedArea/VBox/ScoreRow/OpponentScoreLabel");
         _waitingLabel = GetNode<Label>("UI/WaitingLabel");
+        _serverLabel = GetNode<Label>("UI/ServerLabel");
         _startButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/StartButton");
         _findMatchButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/FindMatchButton");
         _joinButton = GetNode<Button>("UI/MenuPanel/VBoxContainer/JoinContainer/JoinGameButton");
@@ -204,6 +207,10 @@ public partial class MainGame : Control
         _playerBloodBlister.GrowVertical = GrowDirection.End;
         GetNode<Control>("GameArea").AddChild(_playerBloodBlister);
 
+        // Server switch dialog
+        _serverSwitchDialog = new ServerSwitchDialog();
+        AddChild(_serverSwitchDialog);
+
         // Santi cards are now rendered inline in the player/opponent hand areas
         // (no separate panels needed)
     }
@@ -215,6 +222,10 @@ public partial class MainGame : Control
         _network.GameFinished += OnGameFinished;
         _network.NetworkError += OnNetworkError;
         _network.MatchFound += OnMatchFound;
+        _network.EndpointSelected += OnEndpointSelected;
+        _network.ServerSwitching += OnServerSwitching;
+        _network.ServerSwitched += OnServerSwitched;
+        _network.AllServersFailed += OnAllServersFailed;
         
         _startButton.Pressed += OnStartPressed;
         _joinButton.Pressed += OnJoinPressed;
@@ -1494,6 +1505,47 @@ public partial class MainGame : Control
         _waitingLabel.Hide();
         _turnIndicator.Hide();
         DeselectAll();
+    }
+    
+    private void OnEndpointSelected(ServerEndpoint endpoint)
+    {
+        _serverLabel.Text = $"Server: {endpoint.Region}";
+        GD.Print($"MainGame: Updated UI to show server region: {endpoint.Region}");
+    }
+    
+    private void OnServerSwitching(ServerEndpoint newEndpoint)
+    {
+        GD.Print($"MainGame: Server switching to {newEndpoint.Region}");
+        _serverSwitchDialog.ShowSwitching(newEndpoint.Region);
+    }
+    
+    private void OnServerSwitched(ServerEndpoint newEndpoint)
+    {
+        GD.Print($"MainGame: Server switched to {newEndpoint.Region}");
+        _serverSwitchDialog.Hide();
+        _serverLabel.Text = $"Server: {newEndpoint.Region}";
+    }
+    
+    private void OnAllServersFailed()
+    {
+        GD.PrintErr("MainGame: All servers failed!");
+        _serverSwitchDialog.Hide();
+        
+        // Show error dialog with retry option
+        var dialog = new AcceptDialog();
+        dialog.DialogText = "Unable to connect to any server.\nPlease check your internet connection.";
+        dialog.Title = "Connection Error";
+        dialog.OkButtonText = "Retry";
+        
+        dialog.Confirmed += () =>
+        {
+            GD.Print("MainGame: User initiated retry for all servers.");
+            _network.ResetFailedEndpoints();
+            // User can now try actions again
+        };
+        
+        AddChild(dialog);
+        dialog.PopupCentered();
     }
 
     #endregion

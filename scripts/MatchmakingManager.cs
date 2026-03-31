@@ -12,6 +12,7 @@ namespace Scopa2Game.Scripts;
 public partial class MatchmakingManager : Node
 {
     private AuthManager _authManager;
+    private NetworkManager _networkManager;
     private bool _isSearching;
 
     // Events
@@ -24,6 +25,7 @@ public partial class MatchmakingManager : Node
     public override void _Ready()
     {
         _authManager = GetNode<AuthManager>("/root/AuthManager");
+        _networkManager = GetNode<NetworkManager>("/root/NetworkManager");
     }
 
     /// <summary>
@@ -126,7 +128,11 @@ public partial class MatchmakingManager : Node
             $"Authorization: Bearer {_authManager?.Token ?? ""}"
         };
 
-        req.Request(Constants.BaseUrl + endpoint, headers, method);
+        // Get the selected endpoint from NetworkManager
+        var selectedEndpoint = _networkManager?.GetSelectedEndpoint();
+        string baseUrl = selectedEndpoint?.BaseUrl ?? Constants.Endpoints[0].BaseUrl;
+        
+        req.Request(baseUrl + endpoint, headers, method);
 
         var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
         req.QueueFree();

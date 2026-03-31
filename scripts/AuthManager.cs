@@ -55,7 +55,10 @@ public partial class AuthManager : Node
         };
 
         var body = JsonSerializer.Serialize(new { username });
-        req.Request(Constants.BaseUrl + "/auth/register", headers, HttpClient.Method.Post, body);
+        
+        // Use the first endpoint for registration (fallback)
+        string baseUrl = Constants.Endpoints[0].BaseUrl;
+        req.Request(baseUrl + "/auth/register", headers, HttpClient.Method.Post, body);
 
         var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
         req.QueueFree();

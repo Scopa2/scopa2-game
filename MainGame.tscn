@@ -480,6 +480,22 @@ text = "YOUR TURN"
 horizontal_alignment = 1
 vertical_alignment = 1
 
+[node name="ServerLabel" type="Label" parent="UI"]
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -120.0
+offset_top = 8.0
+offset_right = -8.0
+offset_bottom = 28.0
+grow_horizontal = 0
+theme_override_colors/font_color = Color(0.7, 0.7, 0.7, 0.8)
+theme_override_colors/font_shadow_color = Color(0, 0, 0, 0.5)
+theme_override_font_sizes/font_size = 11
+text = "Server: ..."
+horizontal_alignment = 2
+vertical_alignment = 1
+
 [node name="RegisterPanel" type="Panel" parent="UI"]
 visible = true
 anchors_preset = 8
