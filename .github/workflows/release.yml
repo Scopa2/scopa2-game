@@ -1,0 +1,291 @@
+name: Release Build
+
+on:
+  push:
+    tags:
+      - 'v*.*.*'
+
+env:
+  GODOT_VERSION: 4.6.0
+  EXPORT_NAME: Scopa2
+  PROJECT_PATH: .
+
+jobs:
+  export-windows:
+    name: Windows Export
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:mono-4.6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore .NET dependencies
+        run: dotnet restore
+
+      - name: Windows Build
+        run: |
+          mkdir -v -p builds/windows
+          godot -v --headless --export-release "Windows Desktop" ./builds/windows/${EXPORT_NAME}.exe
+
+      - name: Verify Windows Build
+        run: |
+          if [ ! -f "builds/windows/${EXPORT_NAME}.exe" ]; then
+            echo "Windows build failed - executable not found"
+            exit 1
+          fi
+          echo "Windows build successful"
+          ls -lh builds/windows/
+
+      - name: Create Windows ZIP
+        run: |
+          cd builds/windows
+          zip -r ../${EXPORT_NAME}-Windows.zip .
+          cd ../..
+
+      - name: Upload Windows Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: windows-build
+          path: builds/${{ env.EXPORT_NAME }}-Windows.zip
+          retention-days: 1
+
+  export-linux:
+    name: Linux Export (x86_64)
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:mono-4.6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore .NET dependencies
+        run: dotnet restore
+
+      - name: Linux Build
+        run: |
+          mkdir -v -p builds/linux
+          godot -v --headless --export-release "Linux" ./builds/linux/${EXPORT_NAME}.x86_64
+
+      - name: Verify Linux Build
+        run: |
+          if [ ! -f "builds/linux/${EXPORT_NAME}.x86_64" ]; then
+            echo "Linux build failed - executable not found"
+            exit 1
+          fi
+          echo "Linux build successful"
+          ls -lh builds/linux/
+
+      - name: Create Linux ZIP
+        run: |
+          cd builds/linux
+          chmod +x ${EXPORT_NAME}.x86_64
+          zip -r ../${EXPORT_NAME}-Linux.zip .
+          cd ../..
+
+      - name: Upload Linux Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-build
+          path: builds/${{ env.EXPORT_NAME }}-Linux.zip
+          retention-days: 1
+
+  export-linux-arm:
+    name: Linux Export (ARM64)
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:mono-4.6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore .NET dependencies
+        run: dotnet restore
+
+      - name: Linux ARM64 Build
+        run: |
+          mkdir -v -p builds/linux-arm
+          godot -v --headless --export-release "Linux ARM64" ./builds/linux-arm/${EXPORT_NAME}.arm64
+
+      - name: Verify Linux ARM64 Build
+        run: |
+          if [ ! -f "builds/linux-arm/${EXPORT_NAME}.arm64" ]; then
+            echo "Linux ARM64 build failed - executable not found"
+            exit 1
+          fi
+          echo "Linux ARM64 build successful"
+          ls -lh builds/linux-arm/
+
+      - name: Create Linux ARM64 ZIP
+        run: |
+          cd builds/linux-arm
+          chmod +x ${EXPORT_NAME}.arm64
+          zip -r ../${EXPORT_NAME}-Linux-ARM64.zip .
+          cd ../..
+
+      - name: Upload Linux ARM64 Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: linux-arm-build
+          path: builds/${{ env.EXPORT_NAME }}-Linux-ARM64.zip
+          retention-days: 1
+
+  export-mac:
+    name: macOS Export (Universal)
+    runs-on: ubuntu-22.04
+    container:
+      image: barichello/godot-ci:mono-4.6
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          lfs: false
+
+      - name: Setup
+        run: |
+          mkdir -v -p ~/.local/share/godot/export_templates/
+          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable.mono
+
+      - name: Setup .NET SDK
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Restore .NET dependencies
+        run: dotnet restore
+
+      - name: macOS Universal Build
+        run: |
+          mkdir -v -p builds/macos
+          godot -v --headless --export-release "macOS Universal" ./builds/macos/${EXPORT_NAME}.zip
+
+      - name: Verify macOS Build
+        run: |
+          if [ ! -f "builds/macos/${EXPORT_NAME}.zip" ]; then
+            echo "macOS build failed - zip not found"
+            exit 1
+          fi
+          echo "macOS build successful"
+          ls -lh builds/macos/
+
+      - name: Rename macOS Build
+        run: |
+          mv builds/macos/${EXPORT_NAME}.zip builds/${EXPORT_NAME}-macOS.zip
+
+      - name: Upload macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build
+          path: builds/${{ env.EXPORT_NAME }}-macOS.zip
+          retention-days: 1
+
+  create-release:
+    name: Create Release
+    needs: [export-windows, export-linux, export-linux-arm, export-mac]
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download Windows Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: windows-build
+          path: ./artifacts
+
+      - name: Download Linux x86_64 Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-build
+          path: ./artifacts
+
+      - name: Download Linux ARM64 Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: linux-arm-build
+          path: ./artifacts
+
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: ./artifacts
+
+      - name: Verify All Builds
+        run: |
+          echo "Checking all build artifacts..."
+          ls -lh ./artifacts/
+          
+          if [ ! -f "./artifacts/${EXPORT_NAME}-Windows.zip" ]; then
+            echo "Error: Windows build missing"
+            exit 1
+          fi
+          
+          if [ ! -f "./artifacts/${EXPORT_NAME}-Linux.zip" ]; then
+            echo "Error: Linux x86_64 build missing"
+            exit 1
+          fi
+          
+          if [ ! -f "./artifacts/${EXPORT_NAME}-Linux-ARM64.zip" ]; then
+            echo "Error: Linux ARM64 build missing"
+            exit 1
+          fi
+          
+          if [ ! -f "./artifacts/${EXPORT_NAME}-macOS.zip" ]; then
+            echo "Error: macOS build missing"
+            exit 1
+          fi
+          
+          echo "All builds verified successfully!"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            ./artifacts/${{ env.EXPORT_NAME }}-Windows.zip
+            ./artifacts/${{ env.EXPORT_NAME }}-Linux.zip
+            ./artifacts/${{ env.EXPORT_NAME }}-Linux-ARM64.zip
+            ./artifacts/${{ env.EXPORT_NAME }}-macOS.zip
+          draft: false
+          prerelease: false
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

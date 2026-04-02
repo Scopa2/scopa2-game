@@ -232,3 +232,80 @@ Quando si attiva un Santo che richiede target (es. "Scambia carta"):
 * **Territori:** Vesuvio, Mergellina (Solo grafici o influenzano il gameplay? Da decidere).
 * **Animazione Carte:** Implementare un buffer in Godot per gestire la coda di eventi se ne arrivano due molto vicini (es. avversario compra e gioca subito).
 * **Riconnessione:** Se il WebSocket cade, il client deve chiamare `GET /api/games/{id}` per risincronizzarsi.
+
+---
+
+## 8. 🚀 Releases & Distribuzione
+
+### Creazione di una Release
+
+Il progetto utilizza GitHub Actions per automatizzare la compilazione e distribuzione del client Godot su tutte le piattaforme.
+
+#### Come Pubblicare una Release
+
+1. **Assicurati che le tue modifiche siano committed e pushed su GitHub:**
+   ```bash
+   git add .
+   git commit -m "Descrizione delle modifiche"
+   git push origin main
+   ```
+
+2. **Crea e pusha un tag con versione semantica:**
+   ```bash
+   git tag v1.0.0
+   git push origin v1.0.0
+   ```
+
+3. **El workflow si avvia automaticamente** e compila il gioco per:
+   - **Windows** (.exe con DLL, x86_64)
+   - **macOS** (.app bundle universal - Intel + Apple Silicon)
+   - **Linux x86_64** (eseguibile .x86_64)
+   - **Linux ARM64** (eseguibile .arm64 per Raspberry Pi, ARM servers)
+
+4. **Dopo 5-15 minuti**, la release sarà pubblicata automaticamente su GitHub con tutti i build allegati come file ZIP.
+
+#### Versioning Guidelines
+
+Utilizziamo **Semantic Versioning** (MAJOR.MINOR.PATCH):
+
+- **MAJOR (v2.0.0):** Modifiche incompatibili o riscritture significative
+- **MINOR (v1.1.0):** Nuove funzionalità compatibili con le versioni precedenti
+- **PATCH (v1.0.1):** Bug fix e piccole correzioni
+
+#### Dove Trovare le Release
+
+Le release pubblicate sono disponibili nella sezione [Releases](../../releases) del repository GitHub. Ogni release include:
+- **Scopa2-Windows.zip** - Windows 10/11 (x86_64)
+- **Scopa2-macOS.zip** - macOS 10.13+ Universal (Intel + Apple Silicon)
+- **Scopa2-Linux.zip** - Linux (x86_64)
+- **Scopa2-Linux-ARM64.zip** - Linux ARM64 (Raspberry Pi 4+, ARM servers)
+- Note di rilascio auto-generate dai commit
+- Tag della versione
+
+#### Piattaforme Supportate
+
+| Piattaforma | Architettura | Note |
+|-------------|--------------|------|
+| Windows | x86_64 | Windows 10/11 |
+| macOS | Universal (x86_64 + ARM64) | macOS 10.13+, Intel e Apple Silicon (M1/M2/M3) |
+| Linux | x86_64 | Distro moderne con glibc 2.31+ |
+| Linux | ARM64 | Raspberry Pi 4+, server ARM |
+
+#### Build Details
+
+- **Runtime .NET**: Embedded (gli utenti non devono installare .NET)
+- **Debug Symbols**: Esclusi (build ottimizzate per produzione)
+- **Godot Version**: 4.6 con supporto Mono/C#
+
+#### Troubleshooting
+
+Se il workflow di release fallisce:
+1. Controlla i log su GitHub Actions nella tab "Actions"
+2. Verifica che `export_presets.cfg` sia presente e configurato correttamente
+3. Assicurati che il progetto compili localmente con Godot 4.6
+
+Per testare il workflow senza creare una release ufficiale, usa un tag di pre-release:
+```bash
+git tag v0.1.0-test
+git push origin v0.1.0-test
+```
