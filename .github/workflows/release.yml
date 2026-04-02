@@ -29,6 +29,11 @@ jobs:
       - name: Restore .NET dependencies
         run: dotnet restore
 
+      - name: Build C# Project
+        run: |
+          # Build the C# project first so Godot can find the assemblies
+          godot --headless --build-solutions --quit || true
+          
       - name: Windows Build
         run: |
           mkdir -v -p builds/windows
@@ -74,6 +79,11 @@ jobs:
 
       - name: Restore .NET dependencies
         run: dotnet restore
+
+      - name: Build C# Project
+        run: |
+          # Build the C# project first so Godot can find the assemblies
+          godot --headless --build-solutions --quit || true
 
       - name: Linux Build
         run: |
@@ -122,6 +132,11 @@ jobs:
       - name: Restore .NET dependencies
         run: dotnet restore
 
+      - name: Build C# Project
+        run: |
+          # Build the C# project first so Godot can find the assemblies
+          godot --headless --build-solutions --quit || true
+
       - name: Linux ARM64 Build
         run: |
           mkdir -v -p builds/linux-arm
@@ -168,6 +183,11 @@ jobs:
 
       - name: Restore .NET dependencies
         run: dotnet restore
+
+      - name: Build C# Project
+        run: |
+          # Build the C# project first so Godot can find the assemblies
+          godot --headless --build-solutions --quit || true
 
       - name: macOS Universal Build
         run: |
