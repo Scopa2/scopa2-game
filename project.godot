@@ -21,7 +21,7 @@ config/icon="res://icon.svg"
 
 [autoload]
 
-NetworkManager="*uid://j3saca7uciq4"
+NetworkManager="*res://scripts/NetworkManager.cs"
 AuthManager="*res://scripts/AuthManager.cs"
 
 [display]
