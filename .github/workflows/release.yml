@@ -6,26 +6,20 @@ on:
       - 'v*.*.*'
 
 env:
-  GODOT_VERSION: 4.6.0
+  GODOT_VERSION: 4.3
   EXPORT_NAME: Scopa2
-  PROJECT_PATH: .
 
 jobs:
   export-windows:
     name: Windows Export
     runs-on: ubuntu-22.04
     container:
-      image: barichello/godot-ci:mono-4.6
+      image: barichello/godot-ci:mono-4.3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: false
-
-      - name: Setup
-        run: |
-          mkdir -v -p ~/.local/share/godot/export_templates/
-          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -66,17 +60,12 @@ jobs:
     name: Linux Export (x86_64)
     runs-on: ubuntu-22.04
     container:
-      image: barichello/godot-ci:mono-4.6
+      image: barichello/godot-ci:mono-4.3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: false
-
-      - name: Setup
-        run: |
-          mkdir -v -p ~/.local/share/godot/export_templates/
-          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -118,17 +107,12 @@ jobs:
     name: Linux Export (ARM64)
     runs-on: ubuntu-22.04
     container:
-      image: barichello/godot-ci:mono-4.6
+      image: barichello/godot-ci:mono-4.3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: false
-
-      - name: Setup
-        run: |
-          mkdir -v -p ~/.local/share/godot/export_templates/
-          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
@@ -170,17 +154,12 @@ jobs:
     name: macOS Export (Universal)
     runs-on: ubuntu-22.04
     container:
-      image: barichello/godot-ci:mono-4.6
+      image: barichello/godot-ci:mono-4.3
     steps:
       - name: Checkout
         uses: actions/checkout@v4
         with:
           lfs: false
-
-      - name: Setup
-        run: |
-          mkdir -v -p ~/.local/share/godot/export_templates/
-          mv /root/.local/share/godot/export_templates/${GODOT_VERSION}.stable ~/.local/share/godot/export_templates/${GODOT_VERSION}.stable
 
       - name: Setup .NET SDK
         uses: actions/setup-dotnet@v4
