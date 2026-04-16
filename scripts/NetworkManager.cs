@@ -12,43 +12,49 @@ namespace Scopa2Game.Scripts;
 
 public partial class NetworkManager : Node
 {
-    // C# Events for complex types (Godot Signals don't support POCOs well)
-    public event Action<GameState> StateUpdated;
-    public event Action<RoundFinished> RoundFinished;
-    public event Action<GameFinished> GameFinished;
-    public event Action<string> MatchFound;
+    // -------------------------------------------------------------------------
+    // Events
+    // -------------------------------------------------------------------------
+
+    public event Action<GameState>      StateUpdated;
+    public event Action<RoundFinished>  RoundFinished;
+    public event Action<GameFinished>   GameFinished;
+    public event Action<string>         MatchFound;
     public event Action<ServerEndpoint> EndpointSelected;
-    public event Action<ServerEndpoint> ServerSwitching; // New server being switched to
-    public event Action<ServerEndpoint> ServerSwitched;  // Switch completed
-    public event Action AllServersFailed;
+    public event Action<ServerEndpoint> ServerSwitching;
+    public event Action<ServerEndpoint> ServerSwitched;
+    public event Action                 AllServersFailed;
 
     [Signal]
     public delegate void NetworkErrorEventHandler(string errorMessage);
 
-    private ServerEndpoint _selectedEndpoint;
-    private bool _endpointReady = false;
-    private bool _isFailingOver = false;
-    private ulong _lastFailoverTime = 0;
-    private const ulong FailoverCooldownMs = 5000; // 5 seconds
-    
-    // WebSocket auto-reconnection
-    private bool _isReconnecting = false;
-    private int _reconnectAttempts = 0;
-    private const int MaxReconnectAttempts = 5;
-    private const float ReconnectDelaySeconds = 2.0f;
-    
-    // Failure detection & server priority
-    private int _consecutiveFailures = 0;
-    private const int FailureThreshold = 3;
-    private readonly HashSet<ServerEndpoint> _failedEndpoints = new();
-    private List<ServerEndpoint> _endpointPriority = new();
-    
-    // WebSocket channel tracking
-    private readonly List<string> _activeChannels = new();
+    // -------------------------------------------------------------------------
+    // Constants
+    // -------------------------------------------------------------------------
 
-    private string _gameId = "";
-    private PusherClient _pusherClient;
-    private AuthManager _authManager;
+    private const int   FailureThreshold      = 3;
+    private const float ReconnectBaseDelaySec = 2.0f;
+    private const ulong FailoverCooldownMs    = 5_000;
+    private const long  WsConnectTimeoutMs    = 10_000;
+
+    // -------------------------------------------------------------------------
+    // State
+    // -------------------------------------------------------------------------
+
+    private AuthManager    _authManager;
+    private PusherClient   _pusherClient;
+    private string         _gameId = "";
+
+    private ServerEndpoint          _selectedEndpoint;
+    private bool                    _endpointReady    = false;
+    private List<ServerEndpoint>    _endpointPriority = new();
+    private HashSet<ServerEndpoint> _failedEndpoints  = new();
+
+    private int   _consecutiveFailures = 0;
+    private bool  _isFailingOver       = false;
+    private ulong _lastFailoverTime    = 0;
+
+    private readonly List<string> _activeChannels = new();
 
     private readonly JsonSerializerOptions _jsonOptions = new()
     {
@@ -56,197 +62,61 @@ public partial class NetworkManager : Node
         Converters = { new DoubleToIntConverter() }
     };
 
-    /// <summary>Convenience accessor for the player secret (user ID from AuthManager).</summary>
     private string PlayerSecret => _authManager?.PlayerSecret ?? "";
+
+    // -------------------------------------------------------------------------
+    // Godot lifecycle
+    // -------------------------------------------------------------------------
 
     public override async void _Ready()
     {
         _authManager = GetNode<AuthManager>("/root/AuthManager");
-        GD.Print($"NetworkManager: Using AuthManager, logged in: {_authManager.IsLoggedIn}");
+        GD.Print($"[NET] AuthManager ready. Logged in: {_authManager.IsLoggedIn}");
 
         await SelectEndpoint();
-        InitializeWebSocket();
+        await ConnectWebSocket();
     }
 
-    private async Task SelectEndpoint()
-    {
-        GD.Print("NetworkManager: Selecting best endpoint...");
-        
-        var selector = new EndpointSelector();
-        AddChild(selector);
-        
-        // Get all metrics and build priority list
-        var allMetrics = await selector.GetEndpointMetrics(Constants.Endpoints);
-        _endpointPriority = allMetrics
-            .Where(m => m.IsReachable)
-            .OrderBy(m => m.Score)
-            .Select(m => m.Endpoint)
-            .ToList();
-        
-        if (_endpointPriority.Count == 0)
-        {
-            GD.PrintErr("NetworkManager: No reachable endpoints! Using fallback.");
-            _endpointPriority = Constants.Endpoints.ToList();
-        }
-        
-        _selectedEndpoint = _endpointPriority.First();
-        
-        selector.QueueFree();
-        _endpointReady = true;
-        
-        GD.Print($"NetworkManager: Using endpoint {_selectedEndpoint.Region} at {_selectedEndpoint.BaseUrl}");
-        GD.Print($"NetworkManager: Priority list: {string.Join(", ", _endpointPriority.Select(e => e.Region))}");
-        EndpointSelected?.Invoke(_selectedEndpoint);
-    }
+    // -------------------------------------------------------------------------
+    // Public API
+    // -------------------------------------------------------------------------
 
     public ServerEndpoint GetSelectedEndpoint() => _selectedEndpoint;
-    
     public bool IsEndpointReady() => _endpointReady;
 
-    /// <summary>
-    /// Resets all failed endpoints and re-enables them for connection attempts.
-    /// Used when user manually retries after all servers fail.
-    /// </summary>
+    /// <summary>Resets all failed endpoints. Call after user manually retries.</summary>
     public void ResetFailedEndpoints()
     {
-        GD.Print($"NetworkManager: Resetting {_failedEndpoints.Count} failed endpoints.");
+        GD.Print($"[NET] Resetting {_failedEndpoints.Count} failed endpoints.");
         _failedEndpoints.Clear();
         _consecutiveFailures = 0;
         _isFailingOver = false;
     }
 
-    /// <summary>
-    /// Gets the next available endpoint from the priority list, excluding failed ones.
-    /// Returns null if no servers are available.
-    /// </summary>
-    private ServerEndpoint GetNextAvailableEndpoint()
-    {
-        var available = _endpointPriority.Where(e => !_failedEndpoints.Contains(e)).ToList();
-        
-        if (available.Count == 0)
-        {
-            GD.PrintErr("NetworkManager: No available endpoints remaining!");
-            return null;
-        }
-
-        // Get first available that's not the current one
-        var next = available.FirstOrDefault(e => e != _selectedEndpoint) ?? available.First();
-        return next;
-    }
-
-    /// <summary>
-    /// Marks an endpoint as failed and adds it to the exclusion list.
-    /// </summary>
-    private void MarkEndpointAsFailed(ServerEndpoint endpoint)
-    {
-        if (!_failedEndpoints.Contains(endpoint))
-        {
-            _failedEndpoints.Add(endpoint);
-            GD.Print($"NetworkManager: Marked {endpoint.Region} as failed. Failed endpoints: {_failedEndpoints.Count}");
-        }
-    }
-
-    // --- GAME ACTIONS ---
-
     public async void SubscribeToGameChannel()
     {
-        if (_pusherClient != null && !string.IsNullOrEmpty(_gameId))
-        {
-            // Subscribe to private player events
-            string privateChannelName = "private-" + "game_" + _gameId + "_player_" + _authManager.UserId;
-            await AuthenticateAndSubscribe(privateChannelName);
+        if (_pusherClient == null || string.IsNullOrEmpty(_gameId)) return;
 
-            // Subscribe to both players events
-            string bothPlayersChannelName = "private-" + "game_" + _gameId;
-            await AuthenticateAndSubscribe(bothPlayersChannelName);
-        }
+        await AuthenticateAndSubscribe($"private-game_{_gameId}_player_{_authManager.UserId}");
+        await AuthenticateAndSubscribe($"private-game_{_gameId}");
     }
 
     public async void SubscribeToMatchmakingChannel()
     {
-        if (_pusherClient != null && !string.IsNullOrEmpty(PlayerSecret))
-        {
-            string channelName = "private-" + PlayerSecret + "_matchmaking_result";
-            await AuthenticateAndSubscribe(channelName);
-        }
-    }
+        if (_pusherClient == null || string.IsNullOrEmpty(PlayerSecret)) return;
 
-    private async Task AuthenticateAndSubscribe(string channelName)
-    {
-        if (_pusherClient.SocketId == null)
-        {
-            GD.PrintErr("NetworkManager: Cannot authenticate, socket_id is null.");
-            return;
-        }
-
-        var req = new HttpRequest();
-        AddChild(req);
-
-        string[] headers =
-        {
-            "Accept: application/json",
-            "Content-Type: application/x-www-form-urlencoded",
-            $"Authorization: Bearer {_authManager?.Token ?? ""}"
-        };
-
-        string body = $"socket_id={_pusherClient.SocketId}&channel_name={channelName}";
-        
-        string authUrl = _selectedEndpoint.BaseUrl.Replace("/api", "") + "/broadcasting/auth";
-
-        req.Request(authUrl, headers, HttpClient.Method.Post, body);
-
-        var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
-        req.QueueFree();
-
-        long responseCode = result[1].AsInt64();
-        byte[] responseBody = result[3].AsByteArray();
-
-        if (responseCode < 200 || responseCode >= 300)
-        {
-            GD.PrintErr(
-                $"NetworkManager: Auth API Error {responseCode} at {authUrl}. Response: {Encoding.UTF8.GetString(responseBody)}");
-            return;
-        }
-
-        string jsonString = Encoding.UTF8.GetString(responseBody);
-
-        try
-        {
-            var authResponse = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(jsonString, _jsonOptions);
-            if (authResponse != null && authResponse.TryGetValue("auth", out var authHashElement))
-            {
-                string authHash = authHashElement.GetString();
-                GD.Print($"NetworkManager: Authenticated and subscribed to {channelName} with hash {authHash}");
-                _pusherClient.Subscribe(channelName, authHash);
-                
-                // Track active channel
-                if (!_activeChannels.Contains(channelName))
-                {
-                    _activeChannels.Add(channelName);
-                }
-            }
-            else
-            {
-                GD.PrintErr($"NetworkManager: Invalid auth response for channel {channelName}: {jsonString}");
-            }
-        }
-        catch (JsonException ex)
-        {
-            GD.PrintErr($"NetworkManager: Auth JSON Parse Error: {ex.Message}");
-        }
+        await AuthenticateAndSubscribe($"private-{PlayerSecret}_matchmaking_result");
     }
 
     public async void StartGame()
     {
-        GD.Print("NetworkManager: Starting new game...");
-        // We expect a dictionary or object with game_id
+        GD.Print("[NET] Starting new game...");
         var data = await SendApiRequest<JsonElement>("/games", HttpClient.Method.Post);
 
         if (data.ValueKind != JsonValueKind.Undefined && data.TryGetProperty("game_id", out var gameIdProp))
         {
             _gameId = gameIdProp.GetString();
-            GD.Print($"NetworkManager: Game created with ID: {_gameId}");
-
+            GD.Print($"[NET] Game created: {_gameId}");
             SubscribeToGameChannel();
             await FetchGameState();
         }
@@ -259,10 +129,8 @@ public partial class NetworkManager : Node
     public async void ConnectToMatch(string gameId)
     {
         if (string.IsNullOrEmpty(gameId)) return;
-
         _gameId = gameId;
-        GD.Print($"NetworkManager: Connecting to match {_gameId}");
-
+        GD.Print($"[NET] Connecting to match {_gameId}");
         SubscribeToGameChannel();
         await FetchGameState();
     }
@@ -272,7 +140,7 @@ public partial class NetworkManager : Node
         if (string.IsNullOrEmpty(gameId)) return;
 
         _gameId = gameId;
-        GD.Print($"NetworkManager: Joining game {_gameId}");
+        GD.Print($"[NET] Joining game {_gameId}");
 
         var data = await SendApiRequest<JsonElement>($"/games/{_gameId}/join", HttpClient.Method.Post);
 
@@ -290,12 +158,8 @@ public partial class NetworkManager : Node
     public async void SendAction(string action)
     {
         if (string.IsNullOrEmpty(_gameId)) return;
-
-        GD.Print($"NetworkManager: Sending action: {action}");
-        var body = new { action };
-
-        // We don't need the return data for actions, just fire and forget
-        await SendApiRequest<JsonElement>($"/games/{_gameId}/action", HttpClient.Method.Post, body);
+        GD.Print($"[NET] Sending action: {action}");
+        await SendApiRequest<JsonElement>($"/games/{_gameId}/action", HttpClient.Method.Post, new { action });
     }
 
     public async Task FetchGameState()
@@ -308,12 +172,11 @@ public partial class NetworkManager : Node
         {
             try
             {
-                var gameState = stateProp.Deserialize<GameState>(_jsonOptions);
-                StateUpdated?.Invoke(gameState);
+                StateUpdated?.Invoke(stateProp.Deserialize<GameState>(_jsonOptions));
             }
             catch (JsonException ex)
             {
-                GD.PrintErr($"NetworkManager: Failed to deserialize game state: {ex.Message}");
+                GD.PrintErr($"[NET] Failed to deserialize game state: {ex.Message}");
                 EmitSignal(SignalName.NetworkError, "Failed to parse game state.");
             }
         }
@@ -323,19 +186,15 @@ public partial class NetworkManager : Node
         }
     }
 
-    // --- UTILITIES ---
+    // -------------------------------------------------------------------------
+    // HTTP (public so other managers can route through the failover system)
+    // -------------------------------------------------------------------------
 
-    /// <summary>
-    /// A single utility method to handle ALL HTTP requests, JSON parsing, and node cleanup.
-    /// Returns default(T) (null) on failure.
-    /// </summary>
-    private async Task<T> SendApiRequest<T>(string endpoint, HttpClient.Method method, object body = null, bool isRetry = false)
+    public async Task<T> SendApiRequest<T>(string endpoint, HttpClient.Method method, object body = null, bool isRetry = false)
     {
-        // 1. Setup Request Node
         var req = new HttpRequest();
         AddChild(req);
 
-        // 2. Prepare Headers & Body
         string[] headers =
         {
             "Accept: application/json",
@@ -343,347 +202,358 @@ public partial class NetworkManager : Node
             $"player_secret: {PlayerSecret}",
             $"Authorization: Bearer {_authManager?.Token ?? ""}"
         };
+
         string jsonBody = body != null ? JsonSerializer.Serialize(body, _jsonOptions) : "";
+        string url = _selectedEndpoint.BaseUrl + endpoint;
 
-        // 3. Send Request
-        req.Request(_selectedEndpoint.BaseUrl + endpoint, headers, method, jsonBody);
+        GD.Print($"[HTTP] {method} {url}");
+        req.Request(url, headers, method, jsonBody);
 
-        // 4. Wait for response using Godot's ToSignal (Async/Await)
         var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
-        req.QueueFree(); // Immediately clean up the node
+        req.QueueFree();
 
-        // 5. Parse Results
-        long httpResult = result[0].AsInt64();
+        long httpResult   = result[0].AsInt64();
         long responseCode = result[1].AsInt64();
         byte[] responseBody = result[3].AsByteArray();
 
-        // Check if this is a server error (network issue or 5xx)
         if (IsServerError(httpResult, responseCode))
         {
             _consecutiveFailures++;
-            GD.PrintErr(
-                $"NetworkManager: Server Error at {endpoint}. HTTP Result: {httpResult}, Code: {responseCode}. " +
-                $"Consecutive failures: {_consecutiveFailures}/{FailureThreshold}");
-            
-            // Trigger failover if threshold reached and not already retrying
+            GD.PrintErr($"[HTTP] Server error at {endpoint} — httpResult={httpResult}, code={responseCode}. " +
+                        $"Failure {_consecutiveFailures}/{FailureThreshold}");
+
             if (_consecutiveFailures >= FailureThreshold && !_isFailingOver && !isRetry)
             {
-                GD.Print("NetworkManager: Failure threshold reached, triggering failover and retrying request...");
-                bool failoverSuccess = await TriggerFailover();
-                
-                if (failoverSuccess)
+                GD.Print($"[FAILOVER] Threshold reached on HTTP. Triggering failover...");
+                bool switched = await TriggerFailover();
+                if (switched)
                 {
-                    // Retry the request on the new server
-                    GD.Print($"NetworkManager: Retrying request to {endpoint} on new server {_selectedEndpoint.Region}");
+                    GD.Print($"[HTTP] Retrying {endpoint} on {_selectedEndpoint.Region}");
                     return await SendApiRequest<T>(endpoint, method, body, isRetry: true);
                 }
             }
-            
+
             return default;
         }
 
-        // Application-level error (4xx) - don't count as server failure
         if (responseCode >= 400 && responseCode < 500)
         {
-            GD.PrintErr(
-                $"NetworkManager: Application Error {responseCode} at {endpoint}. Response: {Encoding.UTF8.GetString(responseBody)}");
-            // Reset failure counter - server is responding properly
+            GD.PrintErr($"[HTTP] Client error {responseCode} at {endpoint}: {Encoding.UTF8.GetString(responseBody)}");
             _consecutiveFailures = 0;
             return default;
         }
 
-        // Success - reset failure counter
         if (responseCode >= 200 && responseCode < 300)
         {
             _consecutiveFailures = 0;
-            
-            string jsonString = Encoding.UTF8.GetString(responseBody);
-
+            GD.Print($"[HTTP] {responseCode} OK — {endpoint}");
             try
             {
-                return JsonSerializer.Deserialize<T>(jsonString, _jsonOptions);
+                return JsonSerializer.Deserialize<T>(Encoding.UTF8.GetString(responseBody), _jsonOptions);
             }
             catch (JsonException ex)
             {
-                GD.PrintErr($"NetworkManager: JSON Parse Error: {ex.Message}");
+                GD.PrintErr($"[HTTP] JSON parse error: {ex.Message}");
                 return default;
             }
         }
 
-        // Shouldn't reach here, but handle gracefully
-        GD.PrintErr($"NetworkManager: Unexpected response code {responseCode} at {endpoint}");
+        GD.PrintErr($"[HTTP] Unexpected response code {responseCode} at {endpoint}");
         return default;
     }
 
-    /// <summary>
-    /// Determines if an error is a server failure (network issue or server error).
-    /// Returns true for timeouts, connection errors, and 5xx errors.
-    /// Returns false for successful responses and 4xx client errors.
-    /// </summary>
-    private bool IsServerError(long httpResult, long responseCode)
+    private static bool IsServerError(long httpResult, long responseCode) =>
+        httpResult != 0 || (responseCode >= 500 && responseCode < 600);
+
+    // -------------------------------------------------------------------------
+    // Endpoint selection
+    // -------------------------------------------------------------------------
+
+    private async Task SelectEndpoint()
     {
-        // HTTPRequest result codes: 0 = success, non-zero = network error
-        // Common Godot HTTPRequest.Result values:
-        // RESULT_SUCCESS = 0
-        // RESULT_CANT_CONNECT = 7
-        // RESULT_CANT_RESOLVE = 8
-        // RESULT_CONNECTION_ERROR = 9
-        // RESULT_TIMEOUT = 11
-        
-        if (httpResult != 0)
+        GD.Print("[NET] Selecting best endpoint...");
+
+        var selector = new EndpointSelector();
+        AddChild(selector);
+
+        var allMetrics = await selector.GetEndpointMetrics(Constants.Endpoints);
+        _endpointPriority = allMetrics
+            .Where(m => m.IsReachable)
+            .OrderBy(m => m.Score)
+            .Select(m => m.Endpoint)
+            .ToList();
+
+        if (_endpointPriority.Count == 0)
         {
-            // Network-level failure (timeout, can't connect, etc.)
-            return true;
+            GD.PrintErr("[NET] No reachable endpoints — using fallback list.");
+            _endpointPriority = Constants.Endpoints.ToList();
         }
 
-        // Server error (5xx)
-        if (responseCode >= 500 && responseCode < 600)
-        {
-            return true;
-        }
+        selector.QueueFree();
 
-        return false;
+        _selectedEndpoint = _endpointPriority.First();
+        _endpointReady    = true;
+
+        GD.Print($"[NET] Selected: {_selectedEndpoint.Region} ({_selectedEndpoint.BaseUrl})");
+        GD.Print($"[NET] Priority list: {string.Join(" > ", _endpointPriority.Select(e => e.Region))}");
+        EndpointSelected?.Invoke(_selectedEndpoint);
     }
 
-    // --- FAILOVER LOGIC ---
+    private ServerEndpoint GetNextAvailableEndpoint()
+    {
+        var available = _endpointPriority.Where(e => !_failedEndpoints.Contains(e)).ToList();
 
-    /// <summary>
-    /// Triggers a failover to the next available server.
-    /// Called when consecutive failures reach the threshold.
-    /// </summary>
+        if (available.Count == 0)
+        {
+            GD.PrintErr("[FAILOVER] No available endpoints remaining!");
+            return null;
+        }
+
+        GD.Print($"[FAILOVER] Available endpoints: {string.Join(", ", available.Select(e => e.Region))}");
+        return available.FirstOrDefault(e => e != _selectedEndpoint) ?? available.First();
+    }
+
+    private void MarkEndpointAsFailed(ServerEndpoint endpoint)
+    {
+        if (_failedEndpoints.Add(endpoint))
+            GD.PrintErr($"[FAILOVER] Marked {endpoint.Region} as FAILED. Total failed: {_failedEndpoints.Count}/{_endpointPriority.Count}");
+    }
+
+    // -------------------------------------------------------------------------
+    // Failover
+    // -------------------------------------------------------------------------
+
     private async Task<bool> TriggerFailover()
     {
         if (_isFailingOver)
         {
-            GD.Print("NetworkManager: Failover already in progress, skipping.");
+            GD.Print("[FAILOVER] Already in progress — skipping.");
             return false;
         }
 
-        // Check failover cooldown
-        var currentTime = Time.GetTicksMsec();
-        if (currentTime - _lastFailoverTime < FailoverCooldownMs)
+        var now = Time.GetTicksMsec();
+        if (now - _lastFailoverTime < FailoverCooldownMs)
         {
-            GD.Print($"NetworkManager: Failover on cooldown. Wait {(FailoverCooldownMs - (currentTime - _lastFailoverTime)) / 1000}s");
+            ulong remaining = (FailoverCooldownMs - (now - _lastFailoverTime)) / 1000;
+            GD.Print($"[FAILOVER] On cooldown — {remaining}s remaining.");
             return false;
         }
 
-        _isFailingOver = true;
-        _lastFailoverTime = currentTime;
-        GD.Print($"NetworkManager: Triggering failover after {_consecutiveFailures} failures.");
+        _isFailingOver    = true;
+        _lastFailoverTime = now;
 
-        // Mark current endpoint as failed
+        GD.Print($"[FAILOVER] ══════════════════════════════════════");
+        GD.Print($"[FAILOVER] Starting failover from {_selectedEndpoint.Region}");
+        GD.Print($"[FAILOVER] Active channels: [{string.Join(", ", _activeChannels)}]");
+
         MarkEndpointAsFailed(_selectedEndpoint);
 
-        // Get next available endpoint
-        var nextEndpoint = GetNextAvailableEndpoint();
-        if (nextEndpoint == null)
+        var next = GetNextAvailableEndpoint();
+        if (next == null)
         {
-            GD.PrintErr("NetworkManager: All servers failed!");
+            GD.PrintErr("[FAILOVER] ALL SERVERS FAILED.");
             AllServersFailed?.Invoke();
             _isFailingOver = false;
             return false;
         }
 
-        GD.Print($"NetworkManager: Switching from {_selectedEndpoint.Region} to {nextEndpoint.Region}");
-        ServerSwitching?.Invoke(nextEndpoint);
+        GD.Print($"[FAILOVER] Switching: {_selectedEndpoint.Region} → {next.Region}");
+        ServerSwitching?.Invoke(next);
 
-        // Switch endpoint
-        _selectedEndpoint = nextEndpoint;
-        _consecutiveFailures = 0; // Reset counter for new server
+        _selectedEndpoint    = next;
+        _consecutiveFailures = 0;
 
-        // Reconnect WebSocket
-        bool reconnected = await ReconnectWebSocket();
+        GD.Print($"[FAILOVER] Reconnecting WebSocket to {_selectedEndpoint.Region}...");
+        bool connected = await ConnectWebSocket();
 
-        if (reconnected)
+        _isFailingOver = false;
+
+        if (connected)
         {
-            GD.Print($"NetworkManager: Failover complete. Now using {_selectedEndpoint.Region}");
+            GD.Print($"[FAILOVER] ✓ Complete — now using {_selectedEndpoint.Region}");
+            GD.Print($"[FAILOVER] ══════════════════════════════════════");
             ServerSwitched?.Invoke(_selectedEndpoint);
-            _isFailingOver = false;
             return true;
         }
-        else
-        {
-            GD.PrintErr($"NetworkManager: Failed to reconnect WebSocket to {_selectedEndpoint.Region}");
-            _isFailingOver = false;
-            // Try next server
-            return await TriggerFailover();
-        }
+
+        GD.PrintErr($"[FAILOVER] Failed to connect to {_selectedEndpoint.Region} — trying next server...");
+        GD.Print($"[FAILOVER] ══════════════════════════════════════");
+        return await TriggerFailover();
     }
 
-    /// <summary>
-    /// Reconnects the WebSocket to the current selected endpoint.
-    /// Resubscribes to all active channels.
-    /// Used during server failover.
-    /// </summary>
-    private async Task<bool> ReconnectWebSocket()
+    // -------------------------------------------------------------------------
+    // WebSocket
+    // -------------------------------------------------------------------------
+
+    private void InitializePusherClient()
     {
-        GD.Print("NetworkManager: Reconnecting WebSocket...");
-
-        // Disconnect old WebSocket
-        if (_pusherClient != null)
-        {
-            _pusherClient.QueueFree();
-        }
-
-        // Reset reconnect attempts for new server
-        _reconnectAttempts = 0;
-
-        // Create new WebSocket connection
-        InitializeWebSocket();
-
-        // Wait for connection (timeout after 10 seconds)
-        var startTime = Time.GetTicksMsec();
-        const long ConnectionTimeout = 10000; // 10 seconds
-
-        while (_pusherClient.SocketId == null && (Time.GetTicksMsec() - startTime) < ConnectionTimeout)
-        {
-            await Task.Delay(100);
-        }
-
-        if (_pusherClient.SocketId == null)
-        {
-            GD.PrintErr("NetworkManager: WebSocket connection timeout!");
-            return false;
-        }
-
-        GD.Print($"NetworkManager: WebSocket connected. Resubscribing to {_activeChannels.Count} channels...");
-
-        // Resubscribe to all active channels
-        var channelsToResubscribe = new List<string>(_activeChannels);
-        _activeChannels.Clear(); // Will be re-added by AuthenticateAndSubscribe
-
-        foreach (var channel in channelsToResubscribe)
-        {
-            await AuthenticateAndSubscribe(channel);
-        }
-
-        GD.Print("NetworkManager: WebSocket reconnection complete.");
-        return true;
-    }
-
-    // --- WEBSOCKETS ---
-
-    private void InitializeWebSocket()
-    {
-        GD.Print("NetworkManager: Connecting WebSocket...");
         _pusherClient = new PusherClient();
         AddChild(_pusherClient);
         _pusherClient.EventReceived += OnPusherEventReceived;
-        _pusherClient.Disconnected += OnWebSocketDisconnected;
-        _pusherClient.Connected += OnWebSocketConnected;
+        _pusherClient.Disconnected  += OnWebSocketDisconnected;
+        _pusherClient.Connected     += OnWebSocketConnected;
         _pusherClient.ConnectToServer(_selectedEndpoint.WsUrl);
+    }
+
+    private async Task<bool> ConnectWebSocket()
+    {
+        GD.Print($"[WS] Connecting to {_selectedEndpoint.Region} ({_selectedEndpoint.WsUrl})...");
+
+        _pusherClient?.QueueFree();
+        InitializePusherClient();
+
+        var start = Time.GetTicksMsec();
+        while (_pusherClient.SocketId == null && (Time.GetTicksMsec() - start) < WsConnectTimeoutMs)
+            await Task.Delay(100);
+
+        if (_pusherClient.SocketId == null)
+        {
+            GD.PrintErr($"[WS] Connection timed out after {WsConnectTimeoutMs / 1000}s.");
+            return false;
+        }
+
+        GD.Print($"[WS] Connected. Socket ID: {_pusherClient.SocketId}");
+
+        if (_activeChannels.Count > 0)
+        {
+            GD.Print($"[WS] Resubscribing {_activeChannels.Count} channels: [{string.Join(", ", _activeChannels)}]");
+            var channels = new List<string>(_activeChannels);
+            _activeChannels.Clear();
+            foreach (var ch in channels)
+                await AuthenticateAndSubscribe(ch);
+            GD.Print($"[WS] Resubscription done. Active: [{string.Join(", ", _activeChannels)}]");
+        }
+
+        return true;
     }
 
     private void OnWebSocketConnected()
     {
-        GD.Print("NetworkManager: WebSocket connected successfully.");
-        _reconnectAttempts = 0; // Reset reconnect counter on successful connection
+        GD.Print($"[WS] Connected to {_selectedEndpoint.Region}.");
+        _consecutiveFailures = 0;
     }
 
     private async void OnWebSocketDisconnected()
     {
-        GD.Print($"NetworkManager: WebSocket disconnected. Reconnect attempts: {_reconnectAttempts}/{MaxReconnectAttempts}");
-        
-        // Don't auto-reconnect if we're in the middle of a failover
-        if (_isFailingOver)
+        if (_isFailingOver) return;
+
+        _consecutiveFailures++;
+        GD.PrintErr($"[WS] Disconnected from {_selectedEndpoint.Region}. Failure {_consecutiveFailures}/{FailureThreshold}");
+
+        if (_consecutiveFailures >= FailureThreshold)
         {
-            GD.Print("NetworkManager: Skipping auto-reconnect (failover in progress).");
+            GD.Print("[FAILOVER] Threshold reached on WS disconnect. Triggering failover...");
+            await TriggerFailover();
             return;
         }
 
-        // Don't reconnect if already reconnecting
-        if (_isReconnecting)
-        {
-            GD.Print("NetworkManager: Already attempting to reconnect.");
-            return;
-        }
-
-        _isReconnecting = true;
-
-        // Try to reconnect with exponential backoff
-        while (_reconnectAttempts < MaxReconnectAttempts)
-        {
-            _reconnectAttempts++;
-            float delay = ReconnectDelaySeconds * _reconnectAttempts;
-            GD.Print($"NetworkManager: Attempting WebSocket reconnection #{_reconnectAttempts} in {delay}s...");
-            
-            await Task.Delay((int)(delay * 1000));
-
-            bool success = await AttemptWebSocketReconnect();
-            
-            if (success)
-            {
-                _isReconnecting = false;
-                return;
-            }
-        }
-
-        // Max attempts reached
-        GD.PrintErr("NetworkManager: Max WebSocket reconnection attempts reached. Connection lost.");
-        _isReconnecting = false;
-        
-        // Optionally notify user
-        EmitSignal(SignalName.NetworkError, "Connection to server lost. Please restart the game.");
+        float delay = ReconnectBaseDelaySec * _consecutiveFailures;
+        GD.Print($"[WS] Retrying in {delay}s...");
+        await Task.Delay((int)(delay * 1000));
+        await ConnectWebSocket();
     }
 
-    private async Task<bool> AttemptWebSocketReconnect()
+    // -------------------------------------------------------------------------
+    // Channel authentication
+    // -------------------------------------------------------------------------
+
+    private async Task AuthenticateAndSubscribe(string channelName, bool isRetry = false)
     {
+        if (_pusherClient?.SocketId == null)
+        {
+            GD.PrintErr($"[AUTH] Cannot subscribe to {channelName} — socket_id is null.");
+            return;
+        }
+
+        // Pre-register channel so failover can resubscribe it even if this auth fails
+        if (!_activeChannels.Contains(channelName))
+            _activeChannels.Add(channelName);
+
+        GD.Print($"[AUTH] Authenticating {channelName} on {_selectedEndpoint.Region}...");
+
+        var req = new HttpRequest();
+        AddChild(req);
+
+        string[] headers =
+        {
+            "Accept: application/json",
+            "Content-Type: application/x-www-form-urlencoded",
+            $"Authorization: Bearer {_authManager?.Token ?? ""}"
+        };
+
+        string authUrl = _selectedEndpoint.BaseUrl.Replace("/api", "") + "/broadcasting/auth";
+        string body    = $"socket_id={_pusherClient.SocketId}&channel_name={channelName}";
+
+        req.Request(authUrl, headers, HttpClient.Method.Post, body);
+        var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
+        req.QueueFree();
+
+        long   httpResult   = result[0].AsInt64();
+        long   responseCode = result[1].AsInt64();
+        byte[] responseBody = result[3].AsByteArray();
+
+        // Server error (network failure or 5xx) — counts toward failover threshold
+        if (httpResult != 0 || (responseCode >= 500 && responseCode < 600))
+        {
+            _consecutiveFailures++;
+            GD.PrintErr($"[AUTH] Server error for {channelName} — httpResult={httpResult}, code={responseCode}. " +
+                        $"Failure {_consecutiveFailures}/{FailureThreshold}");
+
+            if (_consecutiveFailures >= FailureThreshold && !_isFailingOver && !isRetry)
+            {
+                GD.Print("[FAILOVER] Threshold reached on AUTH. Triggering failover...");
+                // Channel is already in _activeChannels — ConnectWebSocket will resubscribe it
+                await TriggerFailover();
+            }
+            return;
+        }
+
+        // Client error (4xx) — don't retry; remove from active channels
+        if (responseCode >= 400 && responseCode < 500)
+        {
+            GD.PrintErr($"[AUTH] Client error {responseCode} for {channelName} — removing from active channels.");
+            _activeChannels.Remove(channelName);
+            _consecutiveFailures = 0;
+            return;
+        }
+
+        // Success
         try
         {
-            GD.Print($"NetworkManager: Reconnecting to {_selectedEndpoint.Region}...");
-            
-            // Disconnect old WebSocket if still around
-            if (_pusherClient != null)
+            var parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+                Encoding.UTF8.GetString(responseBody), _jsonOptions);
+
+            if (parsed != null && parsed.TryGetValue("auth", out var authHashEl))
             {
-                _pusherClient.QueueFree();
+                string authHash = authHashEl.GetString();
+                _pusherClient.Subscribe(channelName, authHash);
+                _consecutiveFailures = 0;
+                GD.Print($"[AUTH] ✓ Subscribed to {channelName}");
             }
-
-            // Create new connection
-            InitializeWebSocket();
-
-            // Wait for connection (timeout after 10 seconds)
-            var startTime = Time.GetTicksMsec();
-            const long ConnectionTimeout = 10000;
-
-            while (_pusherClient.SocketId == null && (Time.GetTicksMsec() - startTime) < ConnectionTimeout)
+            else
             {
-                await Task.Delay(100);
+                GD.PrintErr($"[AUTH] Invalid auth response for {channelName}: {Encoding.UTF8.GetString(responseBody)}");
+                _activeChannels.Remove(channelName);
             }
-
-            if (_pusherClient.SocketId == null)
-            {
-                GD.PrintErr("NetworkManager: Reconnection timeout.");
-                return false;
-            }
-
-            GD.Print($"NetworkManager: Reconnected! Resubscribing to {_activeChannels.Count} channels...");
-
-            // Resubscribe to all active channels
-            var channelsToResubscribe = new List<string>(_activeChannels);
-            _activeChannels.Clear();
-
-            foreach (var channel in channelsToResubscribe)
-            {
-                await AuthenticateAndSubscribe(channel);
-            }
-
-            GD.Print("NetworkManager: WebSocket reconnection successful!");
-            return true;
         }
-        catch (Exception ex)
+        catch (JsonException ex)
         {
-            GD.PrintErr($"NetworkManager: Reconnection failed with exception: {ex.Message}");
-            return false;
+            GD.PrintErr($"[AUTH] JSON parse error for {channelName}: {ex.Message}");
+            _activeChannels.Remove(channelName);
         }
     }
+
+    // -------------------------------------------------------------------------
+    // WebSocket event handling
+    // -------------------------------------------------------------------------
 
     private void OnPusherEventReceived(string eventName, Variant data)
     {
-        GD.Print($"NetworkManager: WS Event '{eventName}'");
-        
-        try 
+        if (eventName != "pusher:pong")
+            GD.Print($"[WS] Event: {eventName}");
+
+        try
         {
-            // Convert Godot Dictionary back to JSON string for consistent deserialization
             string json = Godot.Json.Stringify(data);
             using var doc = JsonDocument.Parse(json);
             var root = doc.RootElement;
@@ -691,74 +561,29 @@ public partial class NetworkManager : Node
             switch (eventName)
             {
                 case "game_state_updated":
-                {
-                    GameState gameState = null;
-                
-                    // Check if wrapped in "state"
-                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("state", out var stateProp))
-                    {
-                        gameState = stateProp.Deserialize<GameState>(_jsonOptions);
-                    }
-                
-                    if (gameState != null)
-                    {
-                        StateUpdated?.Invoke(gameState);
-                    }
-
+                    if (root.TryGetProperty("state", out var stateProp))
+                        StateUpdated?.Invoke(stateProp.Deserialize<GameState>(_jsonOptions));
                     break;
-                }
+
                 case "round_finished":
-                {
-                    RoundFinished finished = null;
-                    // Check if wrapped in "state" or similar - though usually round_finished might be distinct
-                    // For now, assume it might be wrapped or direct, similar pattern
-                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("results", out var stateProp))
-                    {
-                        finished = stateProp.Deserialize<RoundFinished>(_jsonOptions);
-                    }
-
-                    if (finished != null)
-                    {
-                        RoundFinished?.Invoke(finished);
-                    }
-
+                    if (root.TryGetProperty("results", out var roundProp))
+                        RoundFinished?.Invoke(roundProp.Deserialize<RoundFinished>(_jsonOptions));
                     break;
-                }
+
                 case "game_finished":
-                {
-                    GameFinished finished = null;
-                    // Check if wrapped in "state" or similar - though usually round_finished might be distinct
-                    // For now, assume it might be wrapped or direct, similar pattern
-                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("results", out var stateProp))
-                    {
-                        finished = stateProp.Deserialize<GameFinished>(_jsonOptions);
-                    }
-
-                    if (finished != null)
-                    {
-                        GameFinished?.Invoke(finished);
-                    }
-
+                    if (root.TryGetProperty("results", out var gameProp))
+                        GameFinished?.Invoke(gameProp.Deserialize<GameFinished>(_jsonOptions));
                     break;
-                }
+
                 case "match_found":
-                {
-                    string matchGameId = null;
-                    if (root.ValueKind == JsonValueKind.Object && root.TryGetProperty("game_id", out var gameIdProp))
-                    {
-                        matchGameId = gameIdProp.GetString();
-                    }
-                    if (matchGameId != null)
-                    {
-                        MatchFound?.Invoke(matchGameId);
-                    }
+                    if (root.TryGetProperty("game_id", out var gameIdProp))
+                        MatchFound?.Invoke(gameIdProp.GetString());
                     break;
-                }
             }
         }
         catch (JsonException ex)
         {
-             GD.PrintErr($"NetworkManager: Failed to deserialize Pusher event '{eventName}': {ex.Message}");
+            GD.PrintErr($"[WS] Failed to parse event '{eventName}': {ex.Message}");
         }
     }
 }
