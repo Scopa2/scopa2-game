@@ -40,9 +40,8 @@ jobs:
 
       - name: Build C# Project
         run: |
-          # Force import of assets and build C# solution
-          godot --headless --editor --quit || true
-          godot --headless --build-solutions --quit
+          # Build managed assemblies with dotnet to avoid headless editor/autoload crashes in CI.
+          dotnet build --no-restore
           
       - name: Windows Build
         run: |
@@ -101,9 +100,8 @@ jobs:
 
       - name: Build C# Project
         run: |
-          # Force import of assets and build C# solution
-          godot --headless --editor --quit || true
-          godot --headless --build-solutions --quit
+          # Build managed assemblies with dotnet to avoid headless editor/autoload crashes in CI.
+          dotnet build --no-restore
 
       - name: Linux Build
         run: |
@@ -163,9 +161,8 @@ jobs:
 
       - name: Build C# Project
         run: |
-          # Force import of assets and build C# solution
-          godot --headless --editor --quit || true
-          godot --headless --build-solutions --quit
+          # Build managed assemblies with dotnet to avoid headless editor/autoload crashes in CI.
+          dotnet build --no-restore
 
       - name: Linux ARM64 Build
         run: |
@@ -225,9 +222,8 @@ jobs:
 
       - name: Build C# Project
         run: |
-          # Force import of assets and build C# solution
-          godot --headless --editor --quit || true
-          godot --headless --build-solutions --quit
+          # Build managed assemblies with dotnet to avoid headless editor/autoload crashes in CI.
+          dotnet build --no-restore
 
       - name: macOS Universal Build
         run: |
