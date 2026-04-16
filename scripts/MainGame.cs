@@ -1066,12 +1066,27 @@ public partial class MainGame : Control
         {
             string originalCode = kvp.Key;
             CardUI card = kvp.Value;
-            
+
+            // Cards in capture piles are always face-down — applying a mutation would call
+            // UpdateDisplay() → ShowCardFront(), flipping them face-up incorrectly.
+            bool isInCapturePile = card.GetParent() == _playerCapturePile
+                                || card.GetParent() == _opponentCapturePile;
+
             if (mutations.TryGetValue(originalCode, out var mutatedCode))
             {
-                // This card is mutated - animate only if it's a new mutation
-                bool shouldAnimate = newMutations.Contains(originalCode);
-                card.ApplyMutation(mutatedCode, shouldAnimate);
+                if (isInCapturePile)
+                {
+                    // Still track the mutation so EffectiveCardData is correct,
+                    // but suppress the visual update that would flip the card face-up.
+                    card.ApplyMutation(mutatedCode, animate: false);
+                    card.ShowCardBack();
+                }
+                else
+                {
+                    // This card is mutated - animate only if it's a new mutation
+                    bool shouldAnimate = newMutations.Contains(originalCode);
+                    card.ApplyMutation(mutatedCode, shouldAnimate);
+                }
             }
             else if (card.IsMutated)
             {
