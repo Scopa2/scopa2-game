@@ -278,9 +278,11 @@ jobs:
           fi
 
           # Re-sign every Mach-O binary first, then sign the app bundle.
-          while IFS= read -r file; do
-            codesign --force --sign - --timestamp=none "$file"
-          done < <(find "$APP_PATH" -type f -print0 | xargs -0 file | awk -F: '/Mach-O/{print $1}')
+          while IFS= read -r -d '' file; do
+            if file "$file" | grep -q "Mach-O"; then
+              codesign --force --sign - --timestamp=none "$file"
+            fi
+          done < <(find "$APP_PATH" -type f -print0)
 
           codesign --force --deep --sign - --timestamp=none "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
