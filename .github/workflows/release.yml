@@ -250,9 +250,48 @@ jobs:
           path: builds/${{ env.EXPORT_NAME }}-macOS.zip
           retention-days: 1
 
+  resign-mac:
+    name: macOS Re-sign Bundle
+    needs: [export-mac]
+    runs-on: macos-latest
+    steps:
+      - name: Download macOS Artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: macos-build
+          path: ./artifacts
+
+      - name: Re-sign app and embedded libraries
+        run: |
+          mkdir -p ./builds ./macos
+          unzip -q ./artifacts/${EXPORT_NAME}-macOS.zip -d ./macos
+
+          APP_PATH="$(find ./macos -maxdepth 1 -type d -name '*.app' | head -n 1)"
+          if [ -z "$APP_PATH" ]; then
+            echo "Error: .app bundle not found inside macOS artifact"
+            exit 1
+          fi
+
+          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 | while IFS= read -r -d '' file; do
+            codesign --force --sign - --timestamp=none "$file"
+          done
+
+          codesign --force --deep --options runtime --sign - --timestamp=none "$APP_PATH"
+          codesign --verify --deep --strict --verbose=2 "$APP_PATH"
+
+          ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ./builds/${EXPORT_NAME}-macOS.zip
+          ls -lh ./builds/${EXPORT_NAME}-macOS.zip
+
+      - name: Upload re-signed macOS Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: macos-build-signed
+          path: builds/${{ env.EXPORT_NAME }}-macOS.zip
+          retention-days: 1
+
   create-release:
     name: Create Release
-    needs: [export-windows, export-linux, export-linux-arm, export-mac]
+    needs: [export-windows, export-linux, export-linux-arm, resign-mac]
     runs-on: ubuntu-22.04
     permissions:
       contents: write
@@ -281,7 +320,7 @@ jobs:
       - name: Download macOS Artifact
         uses: actions/download-artifact@v4
         with:
-          name: macos-build
+          name: macos-build-signed
           path: ./artifacts
 
       - name: Verify All Builds
