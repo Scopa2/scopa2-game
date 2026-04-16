@@ -37,6 +37,7 @@ public partial class NetworkManager : Node
     private const ulong FailoverCooldownMs    = 5_000;
     private const long  WsConnectTimeoutMs    = 10_000;
     private const float HttpRequestTimeoutSec = 5.0f;
+    private const ulong HeartbeatTimeoutMs    = 15_000; // 3 missed heartbeats at 5s each
 
     // -------------------------------------------------------------------------
     // State
@@ -54,6 +55,7 @@ public partial class NetworkManager : Node
     private int   _consecutiveFailures = 0;
     private bool  _isFailingOver       = false;
     private ulong _lastFailoverTime    = 0;
+    private ulong _lastHeartbeatAt     = 0;
 
     private readonly List<string> _activeChannels = new();
 
@@ -76,6 +78,18 @@ public partial class NetworkManager : Node
 
         await SelectEndpoint();
         await ConnectWebSocket();
+    }
+
+    public override async void _Process(double delta)
+    {
+        if (!_endpointReady || _isFailingOver || _pusherClient?.SocketId == null || _lastHeartbeatAt == 0) return;
+
+        if (Time.GetTicksMsec() - _lastHeartbeatAt > HeartbeatTimeoutMs)
+        {
+            GD.PrintErr($"[WS] Heartbeat timeout — no beat for {HeartbeatTimeoutMs / 1000}s. Triggering failover...");
+            _lastHeartbeatAt = Time.GetTicksMsec(); // prevent re-entry before failover completes
+            await TriggerFailover();
+        }
     }
 
     // -------------------------------------------------------------------------
@@ -386,6 +400,13 @@ public partial class NetworkManager : Node
             GD.Print($"[FAILOVER] ✓ Complete — now using {_selectedEndpoint.Region}");
             GD.Print($"[FAILOVER] ══════════════════════════════════════");
             ServerSwitched?.Invoke(_selectedEndpoint);
+
+            if (!string.IsNullOrEmpty(_gameId))
+            {
+                GD.Print($"[FAILOVER] Resyncing game state for {_gameId}...");
+                await FetchGameState();
+            }
+
             return true;
         }
 
@@ -427,6 +448,10 @@ public partial class NetworkManager : Node
 
         GD.Print($"[WS] Connected. Socket ID: {_pusherClient.SocketId}");
 
+        // Public channel — no auth needed
+        _pusherClient.Subscribe("heartbeat", "");
+        GD.Print("[WS] Subscribed to heartbeat channel.");
+
         if (_activeChannels.Count > 0)
         {
             GD.Print($"[WS] Resubscribing {_activeChannels.Count} channels: [{string.Join(", ", _activeChannels)}]");
@@ -444,6 +469,7 @@ public partial class NetworkManager : Node
     {
         GD.Print($"[WS] Connected to {_selectedEndpoint.Region}.");
         _consecutiveFailures = 0;
+        _lastHeartbeatAt     = Time.GetTicksMsec(); // seed timer so _Process doesn't fire before first beat
     }
 
     private async void OnWebSocketDisconnected()
@@ -574,8 +600,14 @@ public partial class NetworkManager : Node
 
     private void OnPusherEventReceived(string eventName, Variant data)
     {
-        if (eventName != "pusher:pong")
-            GD.Print($"[WS] Event: {eventName}");
+        if (eventName == "heartbeat")
+        {
+            GD.Print($"[WS] Received heartbeat from {_selectedEndpoint.Region}");
+            _lastHeartbeatAt = Time.GetTicksMsec();
+            return;
+        }
+
+        GD.Print($"[WS] Event: {eventName}");
 
         try
         {
