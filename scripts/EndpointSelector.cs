@@ -102,7 +102,7 @@ public partial class EndpointSelector : Node
 
         var stopwatch = Stopwatch.StartNew();
         
-        string pingUrl = $"http://{endpoint.Host}/api/health";
+        string pingUrl = $"https://{endpoint.Host}/up";
         
         string[] headers = { "Accept: application/json" };
         req.Request(pingUrl, headers, HttpClient.Method.Get);
