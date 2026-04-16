@@ -1,5 +1,4 @@
 using System;
-using System.Text;
 using System.Text.Json;
 using Godot;
 
@@ -45,64 +44,36 @@ public partial class AuthManager : Node
             return;
         }
 
-        var req = new HttpRequest();
-        AddChild(req);
+        var networkManager = GetNode<NetworkManager>("/root/NetworkManager");
+        var data = await networkManager.SendApiRequest<JsonElement>(
+            "/auth/register", HttpClient.Method.Post, new { username });
 
-        string[] headers =
+        if (data.ValueKind == JsonValueKind.Undefined)
         {
-            "Accept: application/json",
-            "Content-Type: application/json"
-        };
-
-        var body = JsonSerializer.Serialize(new { username });
-        
-        // Use the first endpoint for registration (fallback)
-        string baseUrl = Constants.Endpoints[0].BaseUrl;
-        req.Request(baseUrl + "/auth/register", headers, HttpClient.Method.Post, body);
-
-        var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
-        req.QueueFree();
-
-        long responseCode = result[1].AsInt64();
-        byte[] responseBody = result[3].AsByteArray();
-        string jsonString = Encoding.UTF8.GetString(responseBody);
-
-        GD.Print($"AuthManager: Register response ({responseCode}): {jsonString}");
-
-        if (responseCode >= 200 && responseCode < 300)
-        {
-            try
-            {
-                using var doc = JsonDocument.Parse(jsonString);
-                var root = doc.RootElement;
-                var data = root.GetProperty("data");
-                var user = data.GetProperty("user");
-                var token = data.GetProperty("token").GetString();
-                var id = user.GetProperty("id").GetInt32();
-                var name = user.GetProperty("username").GetString();
-
-                UserId = id;
-                Token = token;
-                Username = name;
-                SaveCredentials();
-
-                GD.Print($"AuthManager: Registered successfully as '{Username}' (ID: {UserId})");
-                RegisterSucceeded?.Invoke(Username);
-            }
-            catch (Exception ex)
-            {
-                GD.PrintErr($"AuthManager: Failed to parse register response: {ex.Message}");
-                RegisterFailed?.Invoke("Unexpected server response.");
-            }
+            RegisterFailed?.Invoke("Registration failed. Please try again.");
+            return;
         }
-        else if (responseCode == 422 || responseCode == 409)
+
+        try
         {
-            // Validation error — username already taken
-            RegisterFailed?.Invoke("Username already taken. Please choose another.");
+            var responseData = data.GetProperty("data");
+            var user  = responseData.GetProperty("user");
+            var token = responseData.GetProperty("token").GetString();
+            var id    = user.GetProperty("id").GetInt32();
+            var name  = user.GetProperty("username").GetString();
+
+            UserId   = id;
+            Token    = token;
+            Username = name;
+            SaveCredentials();
+
+            GD.Print($"AuthManager: Registered successfully as '{Username}' (ID: {UserId})");
+            RegisterSucceeded?.Invoke(Username);
         }
-        else
+        catch (Exception ex)
         {
-            RegisterFailed?.Invoke($"Registration failed (HTTP {responseCode}). Please try again.");
+            GD.PrintErr($"AuthManager: Failed to parse register response: {ex.Message}");
+            RegisterFailed?.Invoke("Unexpected server response.");
         }
     }
 

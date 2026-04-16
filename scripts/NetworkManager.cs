@@ -36,6 +36,7 @@ public partial class NetworkManager : Node
     private const float ReconnectBaseDelaySec = 2.0f;
     private const ulong FailoverCooldownMs    = 5_000;
     private const long  WsConnectTimeoutMs    = 10_000;
+    private const float HttpRequestTimeoutSec = 5.0f;
 
     // -------------------------------------------------------------------------
     // State
@@ -192,9 +193,6 @@ public partial class NetworkManager : Node
 
     public async Task<T> SendApiRequest<T>(string endpoint, HttpClient.Method method, object body = null, bool isRetry = false)
     {
-        var req = new HttpRequest();
-        AddChild(req);
-
         string[] headers =
         {
             "Accept: application/json",
@@ -206,59 +204,74 @@ public partial class NetworkManager : Node
         string jsonBody = body != null ? JsonSerializer.Serialize(body, _jsonOptions) : "";
         string url = _selectedEndpoint.BaseUrl + endpoint;
 
-        GD.Print($"[HTTP] {method} {url}");
-        req.Request(url, headers, method, jsonBody);
-
-        var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
-        req.QueueFree();
-
-        long httpResult   = result[0].AsInt64();
-        long responseCode = result[1].AsInt64();
-        byte[] responseBody = result[3].AsByteArray();
-
-        if (IsServerError(httpResult, responseCode))
+        for (int attempt = 1; attempt <= FailureThreshold; attempt++)
         {
-            _consecutiveFailures++;
-            GD.PrintErr($"[HTTP] Server error at {endpoint} — httpResult={httpResult}, code={responseCode}. " +
-                        $"Failure {_consecutiveFailures}/{FailureThreshold}");
+            var req = new HttpRequest();
+            req.Timeout = HttpRequestTimeoutSec;
+            AddChild(req);
 
-            if (_consecutiveFailures >= FailureThreshold && !_isFailingOver && !isRetry)
+            GD.Print($"[HTTP] {method} {url} (attempt {attempt}/{FailureThreshold})");
+            req.Request(url, headers, method, jsonBody);
+
+            var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
+            req.QueueFree();
+
+            long httpResult    = result[0].AsInt64();
+            long responseCode  = result[1].AsInt64();
+            byte[] responseBody = result[3].AsByteArray();
+
+            if (IsServerError(httpResult, responseCode))
             {
-                GD.Print($"[FAILOVER] Threshold reached on HTTP. Triggering failover...");
-                bool switched = await TriggerFailover();
-                if (switched)
+                GD.PrintErr($"[HTTP] Server error at {endpoint} — httpResult={httpResult}, code={responseCode}. " +
+                            $"Attempt {attempt}/{FailureThreshold}");
+
+                if (attempt < FailureThreshold)
                 {
-                    GD.Print($"[HTTP] Retrying {endpoint} on {_selectedEndpoint.Region}");
-                    return await SendApiRequest<T>(endpoint, method, body, isRetry: true);
+                    float delay = ReconnectBaseDelaySec * attempt;
+                    GD.Print($"[HTTP] Retrying in {delay}s...");
+                    await Task.Delay((int)(delay * 1000));
+                    continue;
+                }
+
+                // All retries exhausted — trigger failover
+                if (!_isFailingOver && !isRetry)
+                {
+                    GD.Print($"[FAILOVER] All HTTP retries exhausted for {endpoint}. Triggering failover...");
+                    bool switched = await TriggerFailover();
+                    if (switched)
+                    {
+                        GD.Print($"[HTTP] Retrying {endpoint} on {_selectedEndpoint.Region}");
+                        return await SendApiRequest<T>(endpoint, method, body, isRetry: true);
+                    }
+                }
+
+                return default;
+            }
+
+            if (responseCode >= 400 && responseCode < 500)
+            {
+                GD.PrintErr($"[HTTP] Client error {responseCode} at {endpoint}: {Encoding.UTF8.GetString(responseBody)}");
+                return default;
+            }
+
+            if (responseCode >= 200 && responseCode < 300)
+            {
+                GD.Print($"[HTTP] {responseCode} OK — {endpoint}");
+                try
+                {
+                    return JsonSerializer.Deserialize<T>(Encoding.UTF8.GetString(responseBody), _jsonOptions);
+                }
+                catch (JsonException ex)
+                {
+                    GD.PrintErr($"[HTTP] JSON parse error: {ex.Message}");
+                    return default;
                 }
             }
 
+            GD.PrintErr($"[HTTP] Unexpected response code {responseCode} at {endpoint}");
             return default;
         }
 
-        if (responseCode >= 400 && responseCode < 500)
-        {
-            GD.PrintErr($"[HTTP] Client error {responseCode} at {endpoint}: {Encoding.UTF8.GetString(responseBody)}");
-            _consecutiveFailures = 0;
-            return default;
-        }
-
-        if (responseCode >= 200 && responseCode < 300)
-        {
-            _consecutiveFailures = 0;
-            GD.Print($"[HTTP] {responseCode} OK — {endpoint}");
-            try
-            {
-                return JsonSerializer.Deserialize<T>(Encoding.UTF8.GetString(responseBody), _jsonOptions);
-            }
-            catch (JsonException ex)
-            {
-                GD.PrintErr($"[HTTP] JSON parse error: {ex.Message}");
-                return default;
-            }
-        }
-
-        GD.PrintErr($"[HTTP] Unexpected response code {responseCode} at {endpoint}");
         return default;
     }
 
@@ -471,9 +484,6 @@ public partial class NetworkManager : Node
 
         GD.Print($"[AUTH] Authenticating {channelName} on {_selectedEndpoint.Region}...");
 
-        var req = new HttpRequest();
-        AddChild(req);
-
         string[] headers =
         {
             "Accept: application/json",
@@ -484,62 +494,77 @@ public partial class NetworkManager : Node
         string authUrl = _selectedEndpoint.BaseUrl.Replace("/api", "") + "/broadcasting/auth";
         string body    = $"socket_id={_pusherClient.SocketId}&channel_name={channelName}";
 
-        req.Request(authUrl, headers, HttpClient.Method.Post, body);
-        var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
-        req.QueueFree();
-
-        long   httpResult   = result[0].AsInt64();
-        long   responseCode = result[1].AsInt64();
-        byte[] responseBody = result[3].AsByteArray();
-
-        // Server error (network failure or 5xx) — counts toward failover threshold
-        if (httpResult != 0 || (responseCode >= 500 && responseCode < 600))
+        for (int attempt = 1; attempt <= FailureThreshold; attempt++)
         {
-            _consecutiveFailures++;
-            GD.PrintErr($"[AUTH] Server error for {channelName} — httpResult={httpResult}, code={responseCode}. " +
-                        $"Failure {_consecutiveFailures}/{FailureThreshold}");
+            var req = new HttpRequest();
+            req.Timeout = HttpRequestTimeoutSec;
+            AddChild(req);
 
-            if (_consecutiveFailures >= FailureThreshold && !_isFailingOver && !isRetry)
+            GD.Print($"[AUTH] Attempt {attempt}/{FailureThreshold} for {channelName}");
+            req.Request(authUrl, headers, HttpClient.Method.Post, body);
+            var result = await ToSignal(req, HttpRequest.SignalName.RequestCompleted);
+            req.QueueFree();
+
+            long   httpResult   = result[0].AsInt64();
+            long   responseCode = result[1].AsInt64();
+            byte[] responseBody = result[3].AsByteArray();
+
+            // Server error (network failure or 5xx)
+            if (httpResult != 0 || (responseCode >= 500 && responseCode < 600))
             {
-                GD.Print("[FAILOVER] Threshold reached on AUTH. Triggering failover...");
-                // Channel is already in _activeChannels — ConnectWebSocket will resubscribe it
-                await TriggerFailover();
+                GD.PrintErr($"[AUTH] Server error for {channelName} — httpResult={httpResult}, code={responseCode}. " +
+                            $"Attempt {attempt}/{FailureThreshold}");
+
+                if (attempt < FailureThreshold)
+                {
+                    float delay = ReconnectBaseDelaySec * attempt;
+                    GD.Print($"[AUTH] Retrying in {delay}s...");
+                    await Task.Delay((int)(delay * 1000));
+                    continue;
+                }
+
+                // All retries exhausted — trigger failover
+                // Channel stays in _activeChannels so ConnectWebSocket resubscribes it
+                if (!_isFailingOver && !isRetry)
+                {
+                    GD.Print("[FAILOVER] All AUTH retries exhausted. Triggering failover...");
+                    await TriggerFailover();
+                }
+                return;
             }
-            return;
-        }
 
-        // Client error (4xx) — don't retry; remove from active channels
-        if (responseCode >= 400 && responseCode < 500)
-        {
-            GD.PrintErr($"[AUTH] Client error {responseCode} for {channelName} — removing from active channels.");
-            _activeChannels.Remove(channelName);
-            _consecutiveFailures = 0;
-            return;
-        }
-
-        // Success
-        try
-        {
-            var parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
-                Encoding.UTF8.GetString(responseBody), _jsonOptions);
-
-            if (parsed != null && parsed.TryGetValue("auth", out var authHashEl))
+            // Client error (4xx) — don't retry; remove from active channels
+            if (responseCode >= 400 && responseCode < 500)
             {
-                string authHash = authHashEl.GetString();
-                _pusherClient.Subscribe(channelName, authHash);
-                _consecutiveFailures = 0;
-                GD.Print($"[AUTH] ✓ Subscribed to {channelName}");
+                GD.PrintErr($"[AUTH] Client error {responseCode} for {channelName} — removing from active channels.");
+                _activeChannels.Remove(channelName);
+                return;
             }
-            else
+
+            // Success
+            try
             {
-                GD.PrintErr($"[AUTH] Invalid auth response for {channelName}: {Encoding.UTF8.GetString(responseBody)}");
+                var parsed = JsonSerializer.Deserialize<Dictionary<string, JsonElement>>(
+                    Encoding.UTF8.GetString(responseBody), _jsonOptions);
+
+                if (parsed != null && parsed.TryGetValue("auth", out var authHashEl))
+                {
+                    string authHash = authHashEl.GetString();
+                    _pusherClient.Subscribe(channelName, authHash);
+                    GD.Print($"[AUTH] ✓ Subscribed to {channelName}");
+                }
+                else
+                {
+                    GD.PrintErr($"[AUTH] Invalid auth response for {channelName}: {Encoding.UTF8.GetString(responseBody)}");
+                    _activeChannels.Remove(channelName);
+                }
+            }
+            catch (JsonException ex)
+            {
+                GD.PrintErr($"[AUTH] JSON parse error for {channelName}: {ex.Message}");
                 _activeChannels.Remove(channelName);
             }
-        }
-        catch (JsonException ex)
-        {
-            GD.PrintErr($"[AUTH] JSON parse error for {channelName}: {ex.Message}");
-            _activeChannels.Remove(channelName);
+            return; // success or unrecoverable parse error — exit loop
         }
     }
 
