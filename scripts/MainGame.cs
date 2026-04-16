@@ -112,6 +112,7 @@ public partial class MainGame : Control
     private readonly List<CardUI> _selectedTableCards = new();
     private bool _forceCapturedCardsFaceDown = true;
     private Task _activeAnimationTask = Task.CompletedTask;
+    private string _lastAnimatedMovePgn;
 
     #endregion
 
@@ -506,6 +507,8 @@ public partial class MainGame : Control
         
         private async void OnGameStateReceived(GameState state)
         {
+            LogGameState(state);
+
             // If we are coming from matchmaking, we might not know our player index reliably.
             // But we can infer it: if p1's hand contains "X" (hidden card), we are definitely p2.
             // since we can only see our own hand openly.
@@ -520,8 +523,47 @@ public partial class MainGame : Control
                 }
             }
 
-            _activeAnimationTask = ProcessGameState(state);
+            // Chain onto the previous task so SyncGameState never runs mid-animation.
+            // ProcessGameState itself deduplicates the animation so the same move
+            // never plays twice even when the server fires the WS event multiple times.
+            var previous = _activeAnimationTask;
+            _activeAnimationTask = ProcessAfterCompletion(previous, state);
             await _activeAnimationTask;
+        }
+
+        private async Task ProcessAfterCompletion(Task previous, GameState state)
+        {
+            await previous;
+            await ProcessGameState(state);
+        }
+
+        private void LogGameState(GameState state)
+        {
+            try
+            {
+                const string path = "user://game_state.log";
+                var mode = FileAccess.FileExists(path) ? FileAccess.ModeFlags.ReadWrite : FileAccess.ModeFlags.Write;
+                using var file = FileAccess.Open(path, mode);
+
+                if (file == null)
+                {
+                    GD.PrintErr("[LOG] Failed to open game_state.log");
+                    return;
+                }
+
+                file.SeekEnd(0);
+
+                string timestamp = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff");
+                string json      = System.Text.Json.JsonSerializer.Serialize(state, new System.Text.Json.JsonSerializerOptions { WriteIndented = false });
+
+                file.StoreLine($"[{timestamp}] last_move={state.LastMovePgn ?? "null"} is_my_turn={state.IsMyTurn}");
+                file.StoreLine(json);
+                file.StoreLine("---");
+            }
+            catch (Exception ex)
+            {
+                GD.PrintErr($"[LOG] Error writing game state log: {ex.Message}");
+            }
         }
     
         private async Task ProcessGameState(GameState state)
@@ -537,9 +579,16 @@ public partial class MainGame : Control
             
             if (!_isPlayerTurn) DeselectAll();
             
-            // Animate last move if present
-            if (!string.IsNullOrEmpty(state.LastMovePgn) && IsActionCardPlay(state.LastMovePgn))
+            // Animate last move if present — but only once per unique move.
+            // The server can fire the same WS event multiple times (observed 6x in 3ms);
+            // deduplicating here prevents the same animation from playing back-to-back.
+            bool isNewMove = !string.IsNullOrEmpty(state.LastMovePgn)
+                             && IsActionCardPlay(state.LastMovePgn)
+                             && state.LastMovePgn != _lastAnimatedMovePgn;
+
+            if (isNewMove)
             {
+                _lastAnimatedMovePgn = state.LastMovePgn;
                 var mover = _isPlayerTurn ? _opponentIndex : _playerIndex;
                 await AnimateCaptureOrCardPlayed(state.LastMovePgn, mover);
             }

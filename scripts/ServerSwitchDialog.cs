@@ -28,28 +28,27 @@ public partial class ServerSwitchDialog : Control
         overlay.Color = new Color(0, 0, 0, 0.7f);
         AddChild(overlay);
 
-        // Center panel
+        // CenterContainer fills the overlay and reliably centers its child
+        var center = new CenterContainer();
+        center.SetAnchorsPreset(LayoutPreset.FullRect);
+        AddChild(center);
+
+        // Panel with a fixed size — CenterContainer handles the centering
         _panel = new Panel();
-        _panel.SetAnchorsPreset(LayoutPreset.Center);
-        _panel.AnchorLeft = 0.5f;
-        _panel.AnchorTop = 0.5f;
-        _panel.AnchorRight = 0.5f;
-        _panel.AnchorBottom = 0.5f;
-        _panel.OffsetLeft = -200;
-        _panel.OffsetTop = -100;
-        _panel.OffsetRight = 200;
-        _panel.OffsetBottom = 100;
-        _panel.GrowHorizontal = GrowDirection.Both;
-        _panel.GrowVertical = GrowDirection.Both;
-        
+        _panel.CustomMinimumSize = new Vector2(420, 160);
+
         // Panel styling
         var panelStyle = new StyleBoxFlat();
         panelStyle.BgColor = new Color(0.15f, 0.15f, 0.2f, 0.95f);
         panelStyle.BorderColor = new Color(0.8f, 0.6f, 0.2f);
         panelStyle.SetBorderWidthAll(3);
         panelStyle.SetCornerRadiusAll(10);
+        panelStyle.ContentMarginLeft   = 20;
+        panelStyle.ContentMarginRight  = 20;
+        panelStyle.ContentMarginTop    = 16;
+        panelStyle.ContentMarginBottom = 16;
         _panel.AddThemeStyleboxOverride("panel", panelStyle);
-        AddChild(_panel);
+        center.AddChild(_panel);
 
         // VBox container for content
         var vbox = new VBoxContainer();
@@ -70,12 +69,13 @@ public partial class ServerSwitchDialog : Control
         _messageLabel.Text = "Switching to backup server...";
         _messageLabel.HorizontalAlignment = HorizontalAlignment.Center;
         _messageLabel.AutowrapMode = TextServer.AutowrapMode.Word;
-        _messageLabel.CustomMinimumSize = new Vector2(350, 0);
+        _messageLabel.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         vbox.AddChild(_messageLabel);
 
         // Progress bar (indeterminate)
         _progressBar = new ProgressBar();
-        _progressBar.CustomMinimumSize = new Vector2(350, 20);
+        _progressBar.CustomMinimumSize = new Vector2(0, 20);
+        _progressBar.SizeFlagsHorizontal = SizeFlags.ExpandFill;
         _progressBar.ShowPercentage = false;
         _progressBar.Value = 50;
         vbox.AddChild(_progressBar);
