@@ -40,8 +40,9 @@ jobs:
 
       - name: Build C# Project
         run: |
-          # Build the C# project first so Godot can find the assemblies
-          godot --headless --build-solutions --quit || true
+          # Force import of assets and build C# solution
+          godot --headless --editor --quit || true
+          godot --headless --build-solutions --quit
           
       - name: Windows Build
         run: |
@@ -100,8 +101,9 @@ jobs:
 
       - name: Build C# Project
         run: |
-          # Build the C# project first so Godot can find the assemblies
-          godot --headless --build-solutions --quit || true
+          # Force import of assets and build C# solution
+          godot --headless --editor --quit || true
+          godot --headless --build-solutions --quit
 
       - name: Linux Build
         run: |
@@ -161,8 +163,9 @@ jobs:
 
       - name: Build C# Project
         run: |
-          # Build the C# project first so Godot can find the assemblies
-          godot --headless --build-solutions --quit || true
+          # Force import of assets and build C# solution
+          godot --headless --editor --quit || true
+          godot --headless --build-solutions --quit
 
       - name: Linux ARM64 Build
         run: |
@@ -222,8 +225,9 @@ jobs:
 
       - name: Build C# Project
         run: |
-          # Build the C# project first so Godot can find the assemblies
-          godot --headless --build-solutions --quit || true
+          # Force import of assets and build C# solution
+          godot --headless --editor --quit || true
+          godot --headless --build-solutions --quit
 
       - name: macOS Universal Build
         run: |
@@ -272,11 +276,17 @@ jobs:
             exit 1
           fi
 
-          find "$APP_PATH" -type f \( -name "*.dylib" -o -name "*.so" \) -print0 | while IFS= read -r -d '' file; do
-            codesign --force --sign - --timestamp=none "$file"
-          done
+          if [ -z "$(find "$APP_PATH/Contents/Resources" -type f -name '*.dll' -print -quit)" ]; then
+            echo "Error: no managed .dll files found in exported app"
+            exit 1
+          fi
 
-          codesign --force --deep --options runtime --sign - --timestamp=none "$APP_PATH"
+          # Re-sign every Mach-O binary first, then sign the app bundle.
+          while IFS= read -r file; do
+            codesign --force --sign - --timestamp=none "$file"
+          done < <(find "$APP_PATH" -type f -print0 | xargs -0 file | awk -F: '/Mach-O/{print $1}')
+
+          codesign --force --deep --sign - --timestamp=none "$APP_PATH"
           codesign --verify --deep --strict --verbose=2 "$APP_PATH"
 
           ditto -c -k --sequesterRsrc --keepParent "$APP_PATH" ./builds/${EXPORT_NAME}-macOS.zip
