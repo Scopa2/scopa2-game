@@ -47,7 +47,7 @@ public partial class NetworkManager : Node
     private PusherClient   _pusherClient;
     private string         _gameId = "";
 
-    private ServerEndpoint          _selectedEndpoint;
+    private ServerEndpoint          _selectedEndpoint = Constants.Endpoints[0];
     private bool                    _endpointReady    = false;
     private List<ServerEndpoint>    _endpointPriority = new();
     private HashSet<ServerEndpoint> _failedEndpoints  = new();
@@ -177,6 +177,21 @@ public partial class NetworkManager : Node
         await SendApiRequest<JsonElement>($"/games/{_gameId}/action", HttpClient.Method.Post, new { action });
     }
 
+    public async Task<List<ActiveGame>> GetActiveGames()
+    {
+        GD.Print("[NET] Fetching active games...");
+        try
+        {
+            var data = await SendApiRequest<List<ActiveGame>>("/me/active-games", HttpClient.Method.Get);
+            return data ?? new List<ActiveGame>();
+        }
+        catch (Exception ex)
+        {
+            GD.PrintErr($"[NET] Failed to fetch active games: {ex.Message}");
+            return new List<ActiveGame>();
+        }
+    }
+
     public async Task FetchGameState()
     {
         if (string.IsNullOrEmpty(_gameId)) return;
@@ -207,6 +222,18 @@ public partial class NetworkManager : Node
 
     public async Task<T> SendApiRequest<T>(string endpoint, HttpClient.Method method, object body = null, bool isRetry = false)
     {
+        if (!_endpointReady)
+        {
+            GD.Print("[NET] SendApiRequest called before endpoint selection completed. Waiting for selection...");
+            int waitedMs = 0;
+            while (!_endpointReady && waitedMs < 5000)
+            {
+                await Task.Delay(100);
+                waitedMs += 100;
+            }
+            GD.Print($"[NET] Proceeding with selected endpoint: {_selectedEndpoint?.Region ?? "None"} (waited {waitedMs}ms)");
+        }
+
         string[] headers =
         {
             "Accept: application/json",

@@ -44,18 +44,18 @@ public partial class AuthManager : Node
             return;
         }
 
-        var networkManager = GetNode<NetworkManager>("/root/NetworkManager");
-        var data = await networkManager.SendApiRequest<JsonElement>(
-            "/auth/register", HttpClient.Method.Post, new { username });
-
-        if (data.ValueKind == JsonValueKind.Undefined)
-        {
-            RegisterFailed?.Invoke("Registration failed. Please try again.");
-            return;
-        }
-
         try
         {
+            var networkManager = GetNode<NetworkManager>("/root/NetworkManager");
+            var data = await networkManager.SendApiRequest<JsonElement>(
+                "/auth/register", HttpClient.Method.Post, new { username });
+
+            if (data.ValueKind == JsonValueKind.Undefined)
+            {
+                RegisterFailed?.Invoke("Registration failed. Please try again.");
+                return;
+            }
+
             var responseData = data.GetProperty("data");
             var user  = responseData.GetProperty("user");
             var token = responseData.GetProperty("token").GetString();
@@ -72,8 +72,8 @@ public partial class AuthManager : Node
         }
         catch (Exception ex)
         {
-            GD.PrintErr($"AuthManager: Failed to parse register response: {ex.Message}");
-            RegisterFailed?.Invoke("Unexpected server response.");
+            GD.PrintErr($"AuthManager: Exception during registration: {ex.Message}\n{ex.StackTrace}");
+            RegisterFailed?.Invoke($"Registration error: {ex.Message}");
         }
     }
 

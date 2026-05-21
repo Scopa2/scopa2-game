@@ -84,6 +84,9 @@ public partial class MainGame : Control
     private BloodBlister _playerBloodBlister;
     private BloodBlister _opponentBloodBlister;
 
+    // Rejoin / Active Games UI
+    private ActiveGamesPanel _activeGamesPanel;
+
     // Santi cards rendered inline with player/opponent hands
     private readonly List<TextureButton> _playerSantiCards = new();
     private readonly List<TextureButton> _opponentSantiCards = new();
@@ -214,6 +217,21 @@ public partial class MainGame : Control
 
         // Santi cards are now rendered inline in the player/opponent hand areas
         // (no separate panels needed)
+
+        // Create Active Games Panel programmatically using our custom panel component
+        _activeGamesPanel = new ActiveGamesPanel();
+        
+        var panelStyle = _menuPanel.GetThemeStylebox("panel");
+        StyleBox separatorStyle = null;
+        var menuSeparator = _menuPanel.GetNodeOrNull<HSeparator>("VBoxContainer/HSeparator");
+        if (menuSeparator != null)
+        {
+            separatorStyle = menuSeparator.GetThemeStylebox("separator");
+        }
+
+        _activeGamesPanel.Setup(panelStyle, separatorStyle);
+        _activeGamesPanel.RejoinPressed += OnRejoinGamePressed;
+        GetNode<Control>("UI").AddChild(_activeGamesPanel);
     }
 
     private void ConnectSignals()
@@ -249,6 +267,7 @@ public partial class MainGame : Control
         {
             _registerPanel.Hide();
             _menuPanel.Show();
+            _ = RefreshActiveGames();
         }
         else
         {
@@ -281,6 +300,7 @@ public partial class MainGame : Control
         _registerPanel.Hide();
         _menuPanel.Show();
         GD.Print($"MainGame: Registered as '{username}'");
+        _ = RefreshActiveGames();
     }
 
     private void OnRegisterFailed(string errorMessage)
@@ -293,6 +313,7 @@ public partial class MainGame : Control
     {
         _authManager.Logout();
         _menuPanel.Hide();
+        _activeGamesPanel.Hide();
         _registerPanel.Show();
         _registerError.Text = "";
         _usernameInput.Text = "";
@@ -302,6 +323,7 @@ public partial class MainGame : Control
     {
         _network.StartGame();
         _menuPanel.Hide();
+        _activeGamesPanel.Hide();
         _waitingLabel.Show();
         _playerIndex = PlayerIndex.P1;
         _opponentIndex = PlayerIndex.P2;
@@ -314,6 +336,7 @@ public partial class MainGame : Control
 
         _network.JoinGame(gameId);
         _menuPanel.Hide();
+        _activeGamesPanel.Hide();
         _waitingLabel.Show();
         _playerIndex = PlayerIndex.P2;
         _opponentIndex = PlayerIndex.P1;
@@ -335,6 +358,7 @@ public partial class MainGame : Control
     {
         _findMatchButton.Disabled = false;
         _menuPanel.Hide();
+        _activeGamesPanel.Hide();
         _matchmakingPanel.Show();
         _queueSizeLabel.Text = "Players in queue: ...";
         _playerIndex = PlayerIndex.P1; // default, will autocorrect if needed
@@ -345,6 +369,7 @@ public partial class MainGame : Control
     {
         _matchmakingPanel.Hide();
         _menuPanel.Show();
+        _ = RefreshActiveGames();
     }
 
     private void OnQueueError(string error)
@@ -362,8 +387,34 @@ public partial class MainGame : Control
         
         _matchmakingPanel.Hide();
         _menuPanel.Hide();
+        _activeGamesPanel.Hide();
         _waitingLabel.Show();
 
+        _network.ConnectToMatch(gameId);
+    }
+
+    private async Task RefreshActiveGames()
+    {
+        if (!_authManager.IsLoggedIn)
+        {
+            _activeGamesPanel.Hide();
+            return;
+        }
+
+        var activeGames = await _network.GetActiveGames();
+        
+        var btnNormal = _startButton.GetThemeStylebox("normal");
+        var btnHover = _startButton.GetThemeStylebox("hover");
+        var btnPressed = _startButton.GetThemeStylebox("pressed");
+
+        _activeGamesPanel.Refresh(activeGames, btnNormal, btnHover, btnPressed);
+    }
+
+    private void OnRejoinGamePressed(string gameId)
+    {
+        GD.Print($"MainGame: Rejoining game {gameId}");
+        _activeGamesPanel.Hide();
+        _menuPanel.Hide();
         _network.ConnectToMatch(gameId);
     }
 
@@ -1283,6 +1334,7 @@ public partial class MainGame : Control
         {
             _menuPanel.Show();
             _turnIndicator.Hide();
+            _ = RefreshActiveGames();
         };
         AddChild(dialog);
     }
@@ -1554,6 +1606,7 @@ public partial class MainGame : Control
         _waitingLabel.Hide();
         _turnIndicator.Hide();
         DeselectAll();
+        _ = RefreshActiveGames();
     }
     
     private void OnEndpointSelected(ServerEndpoint endpoint)

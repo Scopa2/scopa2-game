@@ -98,6 +98,7 @@ public partial class EndpointSelector : Node
     private async Task<double> PingEndpoint(ServerEndpoint endpoint)
     {
         var req = new HttpRequest();
+        req.Timeout = PingTimeoutMs / 1000.0;
         AddChild(req);
 
         var stopwatch = Stopwatch.StartNew();
